@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.ArrowRoute" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/bar</item>
+        <item name="android:navigationBarColor">@color/bar</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
