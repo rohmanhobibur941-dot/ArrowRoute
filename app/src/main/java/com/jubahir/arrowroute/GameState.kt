@@ -31,9 +31,9 @@ class Prefs(ctx: Context) {
             sp.edit().putInt("level", v).apply()
         }
 
-    /** 0 = classic (black on beige), 1 = neon (colourful on dark) */
+    /** 0 = classic (black on beige), 1 = neon (colourful on dark), 2 = candy (glossy 3D) */
     var theme: Int
-        get() = sp.getInt("theme", 0)
+        get() = sp.getInt("theme", 2)
         set(v) {
             sp.edit().putInt("theme", v).apply()
         }
@@ -96,6 +96,9 @@ class GameState(private val prefs: Prefs) {
     var w by mutableIntStateOf(1)
     var h by mutableIntStateOf(1)
     var arrows by mutableStateOf<List<Arrow>>(emptyList())
+    var mask by mutableStateOf(BooleanArray(0))
+    var shape by mutableStateOf(ShapeType.RECT)
+    var totalArrows by mutableIntStateOf(1)
     val ghosts = mutableStateMapOf<Int, Ghost>()
     var blockedId by mutableIntStateOf(-1)
     var hintId by mutableIntStateOf(-1)
@@ -115,6 +118,9 @@ class GameState(private val prefs: Prefs) {
         w = lv.w
         h = lv.h
         arrows = lv.arrows
+        mask = lv.mask
+        shape = lv.shape
+        totalArrows = maxOf(1, lv.arrows.size)
         hearts = 3
         status = Status.PLAYING
         ghosts.clear()
