@@ -1,11 +1,13 @@
 package com.jubahir.arrowroute
 
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -30,10 +32,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -50,13 +55,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 private val TAN = Color(0xFFC9A66B)
@@ -65,16 +74,87 @@ private val CREAM = Color(0xFFFFF3D6)
 private val GREEN = Color(0xFF4CAF28)
 private val RED = Color(0xFFE53935)
 private val HINT = Color(0xFF2ECC71)
+private val INK = Color(0xFF4A3B22)
 
 private val NEON = listOf(
     0xFFFFD54F, 0xFF64B5F6, 0xFFBA68C8, 0xFFF06292, 0xFF4DD0E1,
     0xFFAED581, 0xFFFF8A65, 0xFF7986CB, 0xFF81C784, 0xFFE57373
 ).map { Color(it) }
 
+// ---------------------------------------------------------------- drawn icons (no emoji)
+
+enum class Ico { COIN, HEART, HEART_OFF, GEAR, BULB, PALETTE }
+
+@Composable
+fun GameIcon(kind: Ico, dp: Dp, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(dp)) {
+        val w = this.size.width
+        val h = this.size.height
+        when (kind) {
+            Ico.COIN -> {
+                drawCircle(Color(0xFFE0A100), radius = w * 0.5f)
+                drawCircle(Color(0xFFFFD54F), radius = w * 0.4f)
+                drawRoundRect(
+                    Color(0xFFE0A100),
+                    topLeft = Offset(w * 0.44f, h * 0.28f),
+                    size = Size(w * 0.12f, h * 0.44f),
+                    cornerRadius = CornerRadius(w * 0.06f)
+                )
+            }
+            Ico.HEART, Ico.HEART_OFF -> {
+                val p = Path()
+                p.moveTo(w * 0.5f, h * 0.88f)
+                p.cubicTo(w * 0.1f, h * 0.58f, w * 0.0f, h * 0.25f, w * 0.25f, h * 0.15f)
+                p.cubicTo(w * 0.4f, h * 0.09f, w * 0.5f, h * 0.2f, w * 0.5f, h * 0.3f)
+                p.cubicTo(w * 0.5f, h * 0.2f, w * 0.6f, h * 0.09f, w * 0.75f, h * 0.15f)
+                p.cubicTo(w * 1.0f, h * 0.25f, w * 0.9f, h * 0.58f, w * 0.5f, h * 0.88f)
+                p.close()
+                if (kind == Ico.HEART) {
+                    drawPath(p, Color(0xFFE5395A))
+                } else {
+                    drawPath(p, Color(0xFF9E9E9E), style = Stroke(width = w * 0.09f, join = StrokeJoin.Round))
+                }
+            }
+            Ico.GEAR -> {
+                val col = Color(0xFF6B6B6B)
+                val c = Offset(w / 2f, h / 2f)
+                for (i in 0 until 8) {
+                    val a = i * PI / 4.0
+                    val dx = cos(a).toFloat()
+                    val dy = sin(a).toFloat()
+                    drawLine(
+                        col,
+                        Offset(c.x + dx * w * 0.3f, c.y + dy * w * 0.3f),
+                        Offset(c.x + dx * w * 0.46f, c.y + dy * w * 0.46f),
+                        strokeWidth = w * 0.16f
+                    )
+                }
+                drawCircle(col, radius = w * 0.3f, style = Stroke(width = w * 0.16f))
+            }
+            Ico.BULB -> {
+                drawCircle(Color(0xFFFFC83D), radius = w * 0.3f, center = Offset(w * 0.5f, h * 0.4f))
+                drawRoundRect(
+                    Color(0xFF8D8D8D),
+                    topLeft = Offset(w * 0.36f, h * 0.66f),
+                    size = Size(w * 0.28f, h * 0.22f),
+                    cornerRadius = CornerRadius(w * 0.05f)
+                )
+            }
+            Ico.PALETTE -> {
+                drawCircle(Color(0xFFD9A066), radius = w * 0.46f)
+                drawCircle(Color(0xFFE53935), radius = w * 0.08f, center = Offset(w * 0.35f, h * 0.35f))
+                drawCircle(Color(0xFF3A6FD8), radius = w * 0.08f, center = Offset(w * 0.62f, h * 0.32f))
+                drawCircle(Color(0xFF43A047), radius = w * 0.08f, center = Offset(w * 0.7f, h * 0.58f))
+                drawCircle(Color(0xFFFFF3D6), radius = w * 0.1f, center = Offset(w * 0.4f, h * 0.68f))
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- root + splash
 
 @Composable
-fun AppRoot() {
+fun AppRoot(ads: AdManager) {
     val ctx = LocalContext.current
     val prefs = remember { Prefs(ctx) }
     val fx = remember { Fx(ctx, prefs) }
@@ -82,7 +162,7 @@ fun AppRoot() {
     if (splash) {
         SplashScreen { splash = false }
     } else {
-        GameScreen(prefs, fx)
+        GameScreen(prefs, fx, ads)
     }
 }
 
@@ -108,7 +188,7 @@ fun SplashScreen(onDone: () -> Unit) {
                 style = TextStyle(shadow = shadow)
             )
             Text(
-                "Route \u279C",
+                "Route",
                 color = Color.White,
                 fontSize = 64.sp,
                 fontWeight = FontWeight.Black,
@@ -137,7 +217,8 @@ fun SplashScreen(onDone: () -> Unit) {
 // ---------------------------------------------------------------- game screen
 
 @Composable
-fun GameScreen(prefs: Prefs, fx: Fx) {
+fun GameScreen(prefs: Prefs, fx: Fx, ads: AdManager) {
+    val ctx = LocalContext.current
     val gs = remember { GameState(prefs) }
     val scope = rememberCoroutineScope()
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -146,6 +227,12 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
     var showWallet by remember { mutableStateOf(false) }
 
     LaunchedEffect(gs.gen) { zoom = 1f }
+
+    fun watchAd(onReward: () -> Unit) {
+        ads.showRewarded(onReward) {
+            Toast.makeText(ctx, "Ad not ready, try again in a moment", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val dark = gs.theme == 1
     val bg = if (dark) Color(0xFF141B2B) else Color(0xFFE9DCBC)
@@ -166,13 +253,13 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("\uD83E\uDE99", fontSize = 24.sp)
+            GameIcon(Ico.COIN, 28.dp)
             Spacer(Modifier.width(8.dp))
             Text(
                 "${gs.coins}",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF4A3B22),
+                color = INK,
                 modifier = Modifier.weight(1f)
             )
             GreenButton("Wallet") { showWallet = true }
@@ -192,16 +279,24 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
                     .background(CREAM)
                     .padding(horizontal = 10.dp, vertical = 3.dp)
             ) {
-                Text("Level ${gs.level}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4A3B22))
+                Text("Level ${gs.level}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = INK)
             }
             Spacer(Modifier.weight(1f))
-            Text(
-                (1..3).joinToString(" ") { if (it <= gs.hearts) "\u2764\uFE0F" else "\uD83E\uDD0D" },
-                fontSize = 20.sp
-            )
+            for (i in 1..3) {
+                GameIcon(if (i <= gs.hearts) Ico.HEART else Ico.HEART_OFF, 22.dp)
+                if (i < 3) Spacer(Modifier.width(4.dp))
+            }
         }
 
-        GameBoard(gs, zoom, fx, Modifier.weight(1f).fillMaxWidth())
+        GameBoard(
+            gs = gs,
+            zoom = zoom,
+            onZoom = { zoom = it },
+            fx = fx,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        )
 
         // bottom bar
         Row(
@@ -211,9 +306,9 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            RoundBtn("\uD83C\uDFA8") { showTheme = true }
+            RoundBtn({ showTheme = true }) { GameIcon(Ico.PALETTE, 26.dp) }
             Spacer(Modifier.width(8.dp))
-            RoundBtn("\u2699\uFE0F") { showSettings = true }
+            RoundBtn({ showSettings = true }) { GameIcon(Ico.GEAR, 26.dp) }
             Spacer(Modifier.width(8.dp))
             Row(
                 Modifier
@@ -254,7 +349,18 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
                 )
             }
             Spacer(Modifier.width(8.dp))
-            RoundBtn("\uD83D\uDCA1") { gs.hint(scope) }
+            RoundBtn({ gs.hint(scope) }) { GameIcon(Ico.BULB, 26.dp) }
+        }
+
+        // banner ad (test ad)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .background(TAN),
+            contentAlignment = Alignment.Center
+        ) {
+            BannerAd()
         }
     }
 
@@ -262,12 +368,12 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
         var sound by remember { mutableStateOf(prefs.sound) }
         var vibrate by remember { mutableStateOf(prefs.vibrate) }
         GameDialog("Settings", onClose = { showSettings = false }) {
-            SwitchRow("\uD83D\uDD0A  Sound", sound) {
+            SwitchRow("Sound", sound) {
                 sound = it
                 prefs.sound = it
             }
             Spacer(Modifier.height(10.dp))
-            SwitchRow("\uD83D\uDCF3  Vibration", vibrate) {
+            SwitchRow("Vibration", vibrate) {
                 vibrate = it
                 prefs.vibrate = it
             }
@@ -281,7 +387,7 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
 
     if (showTheme) {
         GameDialog("Theme", onClose = { showTheme = false }) {
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ThemeChoice("Classic", gs.theme == 0, Color(0xFFE9DCBC), Color(0xFF111111)) {
                     gs.setThemeIndex(0)
                 }
@@ -299,7 +405,6 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
             Spacer(Modifier.height(6.dp))
             Text("Current level: ${gs.level}", fontSize = 14.sp, color = Color(0xFF6B5A3A))
             Spacer(Modifier.height(6.dp))
-            // TODO: connect a real rewards/redeem backend here if you add one.
             Text(
                 "Earn 2 coins per arrow and a bonus for every level you clear.",
                 fontSize = 13.sp,
@@ -312,17 +417,39 @@ fun GameScreen(prefs: Prefs, fx: Fx) {
 
     if (gs.status == Status.WON) {
         GameDialog("Level ${gs.level} Complete!", onClose = null) {
-            Text("\uD83C\uDF89", fontSize = 44.sp)
-            Text("Bonus +${gs.bonus} coins", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3F6B1F))
-            Spacer(Modifier.height(16.dp))
-            GreenButton("Next Level") { gs.nextLevel() }
+            GameIcon(Ico.COIN, 56.dp)
+            Spacer(Modifier.height(8.dp))
+            val shown = if (gs.doubled) gs.bonus * 2 else gs.bonus
+            Text(
+                "Bonus +$shown coins",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF3F6B1F)
+            )
+            if (!gs.doubled) {
+                Spacer(Modifier.height(14.dp))
+                GreenButton("2x Coins (Watch Ad)") { watchAd { gs.doubleBonus() } }
+            }
+            Spacer(Modifier.height(10.dp))
+            GreenButton("Next Level") {
+                val lv = gs.level
+                if (lv % 3 == 0) {
+                    ads.showInterstitial { gs.nextLevel() }
+                } else {
+                    gs.nextLevel()
+                }
+            }
         }
     }
 
     if (gs.status == Status.LOST) {
         GameDialog("Out of hearts", onClose = null) {
-            Text("\uD83D\uDC94", fontSize = 44.sp)
-            Spacer(Modifier.height(16.dp))
+            GameIcon(Ico.HEART_OFF, 56.dp)
+            if (!gs.reviveUsed) {
+                Spacer(Modifier.height(14.dp))
+                GreenButton("Extra Life (Watch Ad)") { watchAd { gs.revive() } }
+            }
+            Spacer(Modifier.height(10.dp))
             GreenButton("Try Again") { gs.startLevel() }
         }
     }
@@ -337,7 +464,7 @@ fun LevelProgress(level: Int) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         for (i in 0 until 8) {
             val n = base + i
@@ -358,7 +485,7 @@ fun LevelProgress(level: Int) {
                     if (n < level) "\u2713" else "$n",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (n < level) Color.White else Color(0xFF4A3B22)
+                    color = if (n < level) Color.White else INK
                 )
             }
         }
@@ -366,7 +493,7 @@ fun LevelProgress(level: Int) {
 }
 
 @Composable
-fun RoundBtn(label: String, onClick: () -> Unit) {
+fun RoundBtn(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         Modifier
             .size(44.dp)
@@ -376,7 +503,7 @@ fun RoundBtn(label: String, onClick: () -> Unit) {
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Text(label, fontSize = 22.sp)
+        content()
     }
 }
 
@@ -404,7 +531,7 @@ fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
             .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 16.sp, color = Color(0xFF4A3B22), modifier = Modifier.weight(1f))
+        Text(label, fontSize = 16.sp, color = INK, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
@@ -421,10 +548,10 @@ fun ThemeChoice(name: String, selected: Boolean, bg: Color, accent: Color, onCli
                 .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
-            Text("\u279C\u279C", fontSize = 26.sp, color = accent, fontWeight = FontWeight.Bold)
+            Text("\u2192\u2192", fontSize = 26.sp, color = accent, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(4.dp))
-        Text(name, fontSize = 13.sp, color = Color(0xFF4A3B22))
+        Text(name, fontSize = 13.sp, color = INK)
     }
 }
 
@@ -525,6 +652,12 @@ private fun windowPoints(pts: List<Offset>, a: Float, b: Float): List<Offset> {
     return out
 }
 
+private fun distSq(a: Offset, b: Offset): Float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
 private fun DrawScope.drawSnake(pts: List<Offset>, color: Color, sw: Float, alpha: Float) {
     if (pts.size < 2) return
     val c = color.copy(alpha = alpha)
@@ -553,12 +686,6 @@ private fun DrawScope.drawSnake(pts: List<Offset>, color: Color, sw: Float, alph
     drawPath(head, c)
 }
 
-private fun distSq(a: Offset, b: Offset): Float {
-    val dx = a.x - b.x
-    val dy = a.y - b.y
-    return dx * dx + dy * dy
-}
-
 private fun DrawScope.drawGhost(g: Ghost, lay: BoardLayout, w: Int, h: Int, color: Color, sw: Float) {
     val a = g.arrow
     val len = a.cells.size
@@ -582,11 +709,13 @@ private fun DrawScope.drawGhost(g: Ghost, lay: BoardLayout, w: Int, h: Int, colo
 }
 
 @Composable
-fun GameBoard(gs: GameState, zoom: Float, fx: Fx, modifier: Modifier) {
+fun GameBoard(gs: GameState, zoom: Float, onZoom: (Float) -> Unit, fx: Fx, modifier: Modifier) {
     var pan by remember(gs.gen) { mutableStateOf(Offset.Zero) }
     var boardSize by remember { mutableStateOf(Size.Zero) }
     val scope = rememberCoroutineScope()
     val dark = gs.theme == 1
+    val zoomNow by rememberUpdatedState(zoom)
+    val onZoomNow by rememberUpdatedState(onZoom)
 
     fun colorFor(a: Arrow): Color = when {
         a.id == gs.blockedId -> RED
@@ -597,18 +726,29 @@ fun GameBoard(gs: GameState, zoom: Float, fx: Fx, modifier: Modifier) {
 
     Canvas(
         modifier
+            .clipToBounds()
             .onSizeChanged { boardSize = it.toSize() }
-            .pointerInput(gs.gen, zoom) {
+            .pointerInput(gs.gen) {
                 detectTapGestures { p ->
-                    val lay = boardLayout(boardSize, gs.w, gs.h, zoom, pan)
+                    val lay = boardLayout(boardSize, gs.w, gs.h, zoomNow, pan)
                     val hit = hitTest(gs, lay, p)
                     if (hit != null) gs.onTap(hit, scope, fx)
                 }
             }
-            .pointerInput(gs.gen, zoom) {
-                detectDragGestures { change, drag ->
-                    change.consume()
-                    pan = boardLayout(boardSize, gs.w, gs.h, zoom, pan + drag).pan
+            .pointerInput(gs.gen) {
+                // two-finger pinch to zoom (also pans with one or two fingers)
+                detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                    val oldZoom = zoomNow
+                    val newZoom = (oldZoom * zoomChange).coerceIn(1f, 3f)
+                    val ratio = newZoom / oldZoom
+                    val c = Offset(boardSize.width / 2f, boardSize.height / 2f)
+                    val q = Offset(centroid.x - c.x - pan.x, centroid.y - c.y - pan.y)
+                    val target = Offset(
+                        centroid.x - c.x - q.x * ratio + panChange.x,
+                        centroid.y - c.y - q.y * ratio + panChange.y
+                    )
+                    pan = boardLayout(boardSize, gs.w, gs.h, newZoom, target).pan
+                    if (newZoom != oldZoom) onZoomNow(newZoom)
                 }
             }
     ) {

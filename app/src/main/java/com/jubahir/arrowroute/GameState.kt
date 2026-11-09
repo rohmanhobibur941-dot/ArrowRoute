@@ -103,6 +103,8 @@ class GameState(private val prefs: Prefs) {
     var gen by mutableIntStateOf(0)
     var theme by mutableIntStateOf(prefs.theme)
     var bonus by mutableIntStateOf(0)
+    var doubled by mutableStateOf(false)
+    var reviveUsed by mutableStateOf(false)
 
     init {
         startLevel()
@@ -118,7 +120,25 @@ class GameState(private val prefs: Prefs) {
         ghosts.clear()
         blockedId = -1
         hintId = -1
+        doubled = false
+        reviveUsed = false
         gen++
+    }
+
+    /** Rewarded ad finished after a win: give the level bonus a second time (2x). */
+    fun doubleBonus() {
+        if (doubled || status != Status.WON) return
+        doubled = true
+        coins += bonus
+        prefs.coins = coins
+    }
+
+    /** Rewarded ad finished after a loss: continue the level with one extra life. */
+    fun revive() {
+        if (reviveUsed || status != Status.LOST) return
+        reviveUsed = true
+        hearts = 1
+        status = Status.PLAYING
     }
 
     fun nextLevel() {
