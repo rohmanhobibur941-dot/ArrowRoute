@@ -2,13 +2,22 @@ package com.jubahir.arrowroute
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -16,8 +25,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
@@ -32,13 +43,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,8 +63,6 @@ import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 
 enum class Screen { SPLASH, HOME, GAME }
-
-private val SKY = Brush.verticalGradient(listOf(Color(0xFF9B4DE8), Color(0xFF5E7BF0), Color(0xFFFF9EC4)))
 
 @Composable
 fun AppRoot(ads: AdManager) {
@@ -69,28 +83,82 @@ fun AppRoot(ads: AdManager) {
 
 // ------------------------------------------------------------------ splash + home
 
+private val CREAM_TEXT = Color(0xFFF3E7C4)
+
+/** An image used as a button: press-shrink animation, optional heartbeat, overlay for live text. */
+@Composable
+fun HomeImageButton(
+    res: Int,
+    widthFraction: Float,
+    pulse: Boolean = false,
+    onClick: () -> Unit,
+    overlay: @Composable BoxScope.() -> Unit = {}
+) {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val press by animateFloatAsState(if (pressed) 0.94f else 1f, label = "press")
+    val inf = rememberInfiniteTransition(label = "beat")
+    val beat by inf.animateFloat(
+        initialValue = 1f,
+        targetValue = if (pulse) 1.035f else 1f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
+        label = "beat"
+    )
+    Box(
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .graphicsLayer {
+                scaleX = press * beat
+                scaleY = press * beat
+            }
+            .clickable(interactionSource = src, indication = null) { onClick() }
+    ) {
+        Image(
+            painter = painterResource(res),
+            contentDescription = null,
+            modifier = Modifier.fillMaxWidth(),
+            contentScale = ContentScale.FillWidth
+        )
+        overlay()
+    }
+}
+
 @Composable
 fun SplashScreen(onDone: () -> Unit) {
     LaunchedEffect(Unit) {
         delay(1600)
         onDone()
     }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(SKY),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(R.drawable.bg_forest),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Image(
-                painter = painterResource(R.drawable.app_icon),
+                painter = painterResource(R.drawable.home_logo),
                 contentDescription = null,
-                modifier = Modifier.size(150.dp)
+                modifier = Modifier.fillMaxWidth(0.84f),
+                contentScale = ContentScale.FillWidth
             )
-            Spacer(Modifier.height(16.dp))
-            TitleText("ARROW ROUTE", 38.sp, Color(0xFF9BE7FF), Color(0xFF2D8CFF), Color(0xFF1B3C8C))
-            Spacer(Modifier.height(44.dp))
-            Text("LOADING...", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(36.dp))
+            Text(
+                "LOADING...",
+                color = CREAM_TEXT,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 3f), 6f))
+            )
         }
     }
 }
@@ -101,66 +169,86 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
     var showTheme by remember { mutableStateOf(false) }
     var showHow by remember { mutableStateOf(false) }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(SKY)
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = this.size.width
-            val h = this.size.height
-            drawCircle(Color.White.copy(alpha = 0.08f), radius = w * 0.55f, center = Offset(w * 0.95f, h * 0.12f))
-            drawCircle(Color.White.copy(alpha = 0.06f), radius = w * 0.45f, center = Offset(w * 0.05f, h * 0.62f))
-            drawCircle(Color.White.copy(alpha = 0.07f), radius = w * 0.35f, center = Offset(w * 0.85f, h * 0.9f))
-        }
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(R.drawable.bg_forest),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // coins (top right)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                CoinPill(gs.coins)
+                Box(Modifier.fillMaxWidth(0.34f)) {
+                    Image(
+                        painter = painterResource(R.drawable.home_coin),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentScale = ContentScale.FillWidth
+                    )
+                    val coinSize = when {
+                        gs.coins >= 100000 -> 12.sp
+                        gs.coins >= 10000 -> 14.sp
+                        gs.coins >= 1000 -> 17.sp
+                        else -> 20.sp
+                    }
+                    Text(
+                        "${gs.coins}",
+                        modifier = Modifier.align(BiasAlignment(0.3f, 0f)),
+                        color = CREAM_TEXT,
+                        fontSize = coinSize,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, 2f), 3f))
+                    )
+                }
             }
-            Spacer(Modifier.height(8.dp))
+
+            Spacer(Modifier.weight(0.12f))
+
             Image(
-                painter = painterResource(R.drawable.app_icon),
+                painter = painterResource(R.drawable.home_logo),
                 contentDescription = null,
-                modifier = Modifier.size(118.dp)
+                modifier = Modifier.fillMaxWidth(0.84f),
+                contentScale = ContentScale.FillWidth
             )
-            Spacer(Modifier.height(4.dp))
-            TitleText("ARROW", 56.sp, Color(0xFF9BE7FF), Color(0xFF2D8CFF), Color(0xFF1B3C8C))
-            TitleText("ROUTE", 56.sp, Color(0xFFFFE27A), Color(0xFFFF8A1E), Color(0xFF7A3B0A))
-            Spacer(Modifier.height(6.dp))
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(BtnStyle.BLUE.base)
-                    .border(2.dp, Color.White, RoundedCornerShape(50))
-                    .padding(horizontal = 22.dp, vertical = 4.dp)
-            ) {
-                Text("GRID RUSH", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
-            }
 
             Spacer(Modifier.weight(1f))
 
-            GlossyButton("PLAY  \u2022  LEVEL ${gs.level}", BtnStyle.GREEN, Modifier.width(290.dp), 22.sp) { onPlay() }
+            HomeImageButton(R.drawable.home_play, 0.74f, pulse = true, onClick = onPlay) {
+                Text(
+                    "PLAY \u2022 LEVEL ${gs.level}",
+                    modifier = Modifier.align(BiasAlignment(0f, -0.08f)),
+                    color = CREAM_TEXT,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    style = TextStyle(shadow = Shadow(Color(0xFF0B3D14), Offset(0f, 4f), 4f))
+                )
+            }
             Spacer(Modifier.height(14.dp))
-            GlossyButton("THEME", BtnStyle.BLUE, Modifier.width(290.dp), 20.sp) { showTheme = true }
+            HomeImageButton(R.drawable.home_theme, 0.66f, onClick = { showTheme = true })
             Spacer(Modifier.height(14.dp))
-            GlossyButton("HOW TO PLAY", BtnStyle.ORANGE, Modifier.width(290.dp), 20.sp) { showHow = true }
+            HomeImageButton(R.drawable.home_how, 0.66f, onClick = { showHow = true })
 
-            Spacer(Modifier.weight(0.6f))
+            Spacer(Modifier.weight(0.5f))
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                RoundIconButton(Ico.GEAR, BtnStyle.BLUE, 54.dp) { showSettings = true }
+                HomeImageButton(R.drawable.home_gear, 0.2f, onClick = { showSettings = true })
             }
         }
     }
 
-    if (showSettings) SettingsDialog(prefs, { showSettings = false }, null)
-    if (showTheme) ThemeDialog(gs) { showTheme = false }
-    if (showHow) HowToDialog { showHow = false }
+    if (showSettings) SettingsDialog(prefs, { showSettings = false }, BtnStyle.GREEN, null)
+    if (showTheme) ThemeDialog(gs, BtnStyle.GREEN) { showTheme = false }
+    if (showHow) HowToDialog(BtnStyle.GREEN) { showHow = false }
 }
 
 // ------------------------------------------------------------------ game screen
@@ -195,6 +283,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp))
                 .background(Brush.verticalGradient(listOf(Pal.HeaderTop, Pal.HeaderBottom)))
+                .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -249,8 +338,9 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(54.dp)
-                .background(Pal.BarBg),
+                .background(Pal.BarBg)
+                .navigationBarsPadding()
+                .height(54.dp),
             contentAlignment = Alignment.Center
         ) {
             BannerAd()
@@ -367,10 +457,10 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-fun SettingsDialog(prefs: Prefs, onClose: () -> Unit, onRestart: (() -> Unit)?) {
+fun SettingsDialog(prefs: Prefs, onClose: () -> Unit, ribbon: BtnStyle = BtnStyle.BLUE, onRestart: (() -> Unit)?) {
     var sound by remember { mutableStateOf(prefs.sound) }
     var vibrate by remember { mutableStateOf(prefs.vibrate) }
-    GamePanel("Settings", onClose = onClose) {
+    GamePanel("Settings", onClose = onClose, ribbon = ribbon) {
         SettingRow("Sound", sound) {
             sound = it
             prefs.sound = it
@@ -422,8 +512,8 @@ fun ThemePreview(theme: Int, name: String, selected: Boolean, onClick: () -> Uni
 }
 
 @Composable
-fun ThemeDialog(gs: GameState, onClose: () -> Unit) {
-    GamePanel("Theme", onClose = onClose) {
+fun ThemeDialog(gs: GameState, ribbon: BtnStyle = BtnStyle.BLUE, onClose: () -> Unit) {
+    GamePanel("Theme", onClose = onClose, ribbon = ribbon) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             ThemePreview(Themes.CLASSIC, "Classic", gs.theme == Themes.CLASSIC) { gs.setThemeIndex(Themes.CLASSIC) }
             ThemePreview(Themes.NEON, "Neon", gs.theme == Themes.NEON) { gs.setThemeIndex(Themes.NEON) }
@@ -433,8 +523,8 @@ fun ThemeDialog(gs: GameState, onClose: () -> Unit) {
 }
 
 @Composable
-fun HowToDialog(onClose: () -> Unit) {
-    GamePanel("How to play", onClose = onClose, ribbon = BtnStyle.ORANGE) {
+fun HowToDialog(ribbon: BtnStyle = BtnStyle.ORANGE, onClose: () -> Unit) {
+    GamePanel("How to play", onClose = onClose, ribbon = ribbon) {
         val lines = listOf(
             "Tap an arrow to slide it out.",
             "The path in front of its head must be clear.",
