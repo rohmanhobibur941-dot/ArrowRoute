@@ -153,7 +153,7 @@ object LevelGen {
 
     /** aspect = board width / board height of the play area, so the grid fills the screen.
      *  Runs for up to ~2.5s on big levels, so call it from a background thread when possible. */
-    fun generate(level: Int, aspect: Float): Level {
+    fun generate(level: Int, aspect: Float, optimize: Boolean = true): Level {
         val shape = shapeFor(level)
         val tier = tierFor(level)
         val target = arrowTarget(level)
@@ -172,7 +172,7 @@ object LevelGen {
         for (attempt in 0 until 5) {
             val g = Gen(w, h, rnd, tier.straight)
             g.build(mask, tier.longMin, tier.longMax, tier.keepFree, scale)
-            g.optimize(tier.keepFree, deadline)
+            if (optimize) g.optimize(tier.keepFree, deadline)
             val list = g.arrows.mapIndexed { i, p -> Arrow(i, p.map { k -> Cell(k % w, k / w) }) }
             val diff = abs(list.size - target)
             if (diff < bestDiff) {
@@ -184,6 +184,28 @@ object LevelGen {
             scale = (scale * list.size / target).coerceIn(0.5f, 2f)
         }
         return checkNotNull(best)
+    }
+
+    /** Never throws: if the fancy generator fails, fall back to a simpler one, then to a tiny level. */
+    fun generateSafe(level: Int, aspect: Float, onError: (Throwable) -> Unit = {}): Level {
+        try {
+            return generate(level, aspect)
+        } catch (t: Throwable) {
+            onError(t)
+        }
+        try {
+            return generate(level, aspect, optimize = false)
+        } catch (t: Throwable) {
+            onError(t)
+        }
+        val w = 4
+        val h = 4
+        val mask = BooleanArray(w * h) { true }
+        val list = listOf(
+            Arrow(0, listOf(Cell(0, 0), Cell(1, 0))),
+            Arrow(1, listOf(Cell(0, 2), Cell(1, 2)))
+        )
+        return Level(w, h, mask, ShapeType.RECT, list)
     }
 }
 

@@ -7,6 +7,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
@@ -20,6 +21,17 @@ import kotlinx.coroutines.launch
 
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("arrow_route", Context.MODE_PRIVATE)
+
+    /** Last crash / generator error text, shown once on the next launch so it can be reported. */
+    var lastCrash: String
+        get() = sp.getString("last_crash", "") ?: ""
+        set(v) {
+            sp.edit().putString("last_crash", v).commit()
+        }
+
+    fun saveCrash(text: String) {
+        lastCrash = text.take(3500)
+    }
 
     var coins: Int
         get() = sp.getInt("coins", 0)
@@ -123,8 +135,9 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
 
     init {
         // big levels take a moment to build, so do the first one off the UI thread
+        val startNo = level
         Thread {
-            val lv = LevelGen.generate(level, aspect)
+            val lv = LevelGen.generateSafe(startNo, aspect) { prefs.saveCrash("LEVEL GENERATOR: " + Log.getStackTraceString(it)) }
             Handler(Looper.getMainLooper()).post {
                 if (current == null) {
                     current = lv
@@ -142,7 +155,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
             prefetched = null
             return p
         }
-        return LevelGen.generate(no, aspect)
+        return LevelGen.generateSafe(no, aspect) { prefs.saveCrash("LEVEL GENERATOR: " + Log.getStackTraceString(it)) }
     }
 
     private fun prefetchNext() {
@@ -151,7 +164,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         prefetchedFor = no
         prefetched = null
         Thread {
-            val lv = LevelGen.generate(no, aspect)
+            val lv = LevelGen.generateSafe(no, aspect) { prefs.saveCrash("LEVEL GENERATOR: " + Log.getStackTraceString(it)) }
             if (prefetchedFor == no) prefetched = lv
         }.start()
     }
