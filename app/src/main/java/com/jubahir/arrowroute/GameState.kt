@@ -89,7 +89,7 @@ enum class Status { PLAYING, WON, LOST }
 
 class Ghost(val arrow: Arrow, val progress: Float)
 
-class GameState(private val prefs: Prefs) {
+class GameState(private val prefs: Prefs, private val aspect: Float) {
     var level by mutableIntStateOf(prefs.level)
     var coins by mutableIntStateOf(prefs.coins)
     var hearts by mutableIntStateOf(3)
@@ -108,13 +108,15 @@ class GameState(private val prefs: Prefs) {
     var bonus by mutableIntStateOf(0)
     var doubled by mutableStateOf(false)
     var reviveUsed by mutableStateOf(false)
+    var stars by mutableIntStateOf(0)
+    private var cleared = 0
 
     init {
         startLevel()
     }
 
     fun startLevel() {
-        val lv = LevelGen.generate(level)
+        val lv = LevelGen.generate(level, aspect)
         w = lv.w
         h = lv.h
         arrows = lv.arrows
@@ -128,6 +130,8 @@ class GameState(private val prefs: Prefs) {
         hintId = -1
         doubled = false
         reviveUsed = false
+        stars = 0
+        cleared = 0
         gen++
     }
 
@@ -163,8 +167,12 @@ class GameState(private val prefs: Prefs) {
         val occ = LevelGen.occupancy(arrows, w)
         if (LevelGen.canExit(a, w, h, occ)) {
             arrows = arrows.filter { it.id != a.id }
-            coins += 2
-            prefs.coins = coins
+            // only 1 coin for every 5 arrows cleared (arrow counts are big now)
+            cleared += 1
+            if (cleared % 5 == 0) {
+                coins += 1
+                prefs.coins = coins
+            }
             fx.pop()
             val g = gen
             val len = a.cells.size
@@ -177,7 +185,9 @@ class GameState(private val prefs: Prefs) {
                 ghosts.remove(a.id)
             }
             if (arrows.isEmpty()) {
-                bonus = 10 + level * 2
+                // 3 hearts left = 3 stars, 2 hearts = 2 stars, 1 heart = 1 star
+                stars = hearts.coerceIn(1, 3)
+                bonus = (5 + level / 2).coerceAtMost(30) + stars * 2
                 coins += bonus
                 prefs.coins = coins
                 status = Status.WON

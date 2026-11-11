@@ -1,6 +1,5 @@
 package com.jubahir.arrowroute
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -33,7 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,16 +47,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 
@@ -67,9 +63,14 @@ enum class Screen { SPLASH, HOME, GAME }
 @Composable
 fun AppRoot(ads: AdManager) {
     val ctx = LocalContext.current
+    val cfg = LocalConfiguration.current
     val prefs = remember { Prefs(ctx) }
     val fx = remember { Fx(ctx, prefs) }
-    val gs = remember { GameState(prefs) }
+    val gs = remember {
+        // play area = screen minus header and bottom bar; used to shape the grid so it fills the screen
+        val boardH = (cfg.screenHeightDp - 170f).coerceAtLeast(300f)
+        GameState(prefs, (cfg.screenWidthDp / boardH).coerceIn(0.45f, 1.0f))
+    }
     var screen by remember { mutableStateOf(Screen.SPLASH) }
 
     BackHandler(enabled = screen == Screen.GAME) { screen = Screen.HOME }
@@ -83,9 +84,7 @@ fun AppRoot(ads: AdManager) {
 
 // ------------------------------------------------------------------ splash + home
 
-private val CREAM_TEXT = Color(0xFFF3E7C4)
-
-/** An image used as a button: press-shrink animation, optional heartbeat, overlay for live text. */
+/** An image used as a button: press-shrink animation, optional heartbeat, overlay for live content. */
 @Composable
 fun HomeImageButton(
     res: Int,
@@ -126,41 +125,16 @@ fun HomeImageButton(
 @Composable
 fun SplashScreen(onDone: () -> Unit) {
     LaunchedEffect(Unit) {
-        delay(1600)
+        delay(2000)
         onDone()
     }
-    Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.bg_forest),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-        Column(
-            Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Image(
-                painter = painterResource(R.drawable.home_logo),
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth(0.84f),
-                contentScale = ContentScale.FillWidth
-            )
-            Spacer(Modifier.height(36.dp))
-            Text(
-                "LOADING...",
-                color = CREAM_TEXT,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 3f), 6f))
-            )
-        }
-    }
+    // the splash PNG is padded to 9:20, so Crop only trims a sliver on most phones
+    Image(
+        painter = painterResource(R.drawable.splash_bg),
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize(),
+        contentScale = ContentScale.Crop
+    )
 }
 
 @Composable
@@ -193,20 +167,18 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         contentScale = ContentScale.FillWidth
                     )
-                    val coinSize = when {
-                        gs.coins >= 100000 -> 12.sp
-                        gs.coins >= 10000 -> 14.sp
-                        gs.coins >= 1000 -> 17.sp
-                        else -> 20.sp
+                    val txt = "${gs.coins}"
+                    val digitH: Dp = when {
+                        txt.length >= 6 -> 15.dp
+                        txt.length == 5 -> 18.dp
+                        txt.length == 4 -> 21.dp
+                        else -> 23.dp
                     }
-                    Text(
-                        "${gs.coins}",
-                        modifier = Modifier.align(BiasAlignment(0.3f, 0f)),
-                        color = CREAM_TEXT,
-                        fontSize = coinSize,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, 2f), 3f))
+                    NumberImage(
+                        txt,
+                        DigitStyle.W,
+                        digitH,
+                        Modifier.align(BiasAlignment(0.3f, 0f))
                     )
                 }
             }
@@ -223,15 +195,14 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
             Spacer(Modifier.weight(1f))
 
             HomeImageButton(R.drawable.home_play, 0.74f, pulse = true, onClick = onPlay) {
-                Text(
-                    "PLAY \u2022 LEVEL ${gs.level}",
-                    modifier = Modifier.align(BiasAlignment(0f, -0.08f)),
-                    color = CREAM_TEXT,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    style = TextStyle(shadow = Shadow(Color(0xFF0B3D14), Offset(0f, 4f), 4f))
-                )
+                Row(
+                    Modifier.align(BiasAlignment(0f, -0.08f)),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LabelImage(R.drawable.lbl_play_level, 26.dp)
+                    Spacer(Modifier.width(8.dp))
+                    NumberImage("${gs.level}", DigitStyle.P, 26.dp)
+                }
             }
             Spacer(Modifier.height(14.dp))
             HomeImageButton(R.drawable.home_theme, 0.66f, onClick = { showTheme = true })
@@ -253,97 +224,125 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
 
 // ------------------------------------------------------------------ game screen
 
+private val BAR_DARK = Color(0xE61E1004)
+private val EDGE_LINE = Color(0xFF8A5A2B)
+
 @Composable
 fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -> Unit) {
-    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var zoom by remember { mutableFloatStateOf(1f) }
     var showSettings by remember { mutableStateOf(false) }
     var showTheme by remember { mutableStateOf(false) }
+    var adMsg by remember { mutableStateOf(false) }
 
     LaunchedEffect(gs.gen) { zoom = 1f }
+    LaunchedEffect(adMsg) {
+        if (adMsg) {
+            delay(1800)
+            adMsg = false
+        }
+    }
 
     fun watchAd(onReward: () -> Unit) {
-        ads.showRewarded(onReward) {
-            Toast.makeText(ctx, "Ad not ready, try again in a moment", Toast.LENGTH_SHORT).show()
-        }
+        ads.showRewarded(onReward) { adMsg = true }
     }
 
     val cleared = gs.totalArrows - gs.arrows.size
     val fraction = cleared.toFloat() / gs.totalArrows.toFloat()
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Pal.ScreenBg)
-    ) {
-        // header
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp))
-                .background(Brush.verticalGradient(listOf(Pal.HeaderTop, Pal.HeaderBottom)))
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RoundIconButton(Ico.HOME, BtnStyle.GREEN, 44.dp) { onHome() }
-                Spacer(Modifier.width(8.dp))
-                RoundIconButton(Ico.RESTART, BtnStyle.GREEN, 44.dp) { gs.startLevel() }
-                Spacer(Modifier.weight(1f))
-                CoinPill(gs.coins)
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("LEVEL ${gs.level}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.weight(1f))
-                for (i in 1..3) {
-                    GameIcon(if (i <= gs.hearts) Ico.HEART else Ico.HEART_OFF, 26.dp)
-                    if (i < 3) Spacer(Modifier.width(4.dp))
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            ProgressBar(fraction, Modifier.fillMaxWidth())
-        }
-
-        GameBoard(
-            gs = gs,
-            zoom = zoom,
-            onZoom = { zoom = it },
-            fx = fx,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+    Box(Modifier.fillMaxSize()) {
+        // wood background for the whole game screen
+        Image(
+            painter = painterResource(R.drawable.bg_wood),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
         )
 
-        // bottom bar
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                .background(Pal.BarBg)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            RoundIconButton(Ico.PALETTE, BtnStyle.BLUE, 46.dp) { showTheme = true }
-            Spacer(Modifier.width(8.dp))
-            RoundIconButton(Ico.GEAR, BtnStyle.ORANGE, 46.dp) { showSettings = true }
-            Spacer(Modifier.width(8.dp))
-            ZoomBar(zoom, { zoom = it }, Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
-            RoundIconButton(Ico.BULB, BtnStyle.GREEN, 46.dp) { gs.hint(scope) }
+        Column(Modifier.fillMaxSize()) {
+            // header (square corners)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color(0xF01E1004), Color(0xB32B1808))))
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RoundIconButton(Ico.HOME, BtnStyle.GREEN, 44.dp) { onHome() }
+                    Spacer(Modifier.width(8.dp))
+                    RoundIconButton(Ico.RESTART, BtnStyle.GREEN, 44.dp) { gs.startLevel() }
+                    Spacer(Modifier.weight(1f))
+                    CoinPill(gs.coins)
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    LabelImage(R.drawable.lbl_level, 22.dp)
+                    Spacer(Modifier.width(8.dp))
+                    NumberImage("${gs.level}", DigitStyle.W, 24.dp)
+                    Spacer(Modifier.weight(1f))
+                    for (i in 1..3) {
+                        GameIcon(if (i <= gs.hearts) Ico.HEART else Ico.HEART_OFF, 26.dp)
+                        if (i < 3) Spacer(Modifier.width(4.dp))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                ProgressBar(fraction, Modifier.fillMaxWidth())
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(EDGE_LINE)
+            )
+
+            GameBoard(
+                gs = gs,
+                zoom = zoom,
+                onZoom = { zoom = it },
+                fx = fx,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(EDGE_LINE)
+            )
+            // bottom bar (square corners, no banner ad under it)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(BAR_DARK)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RoundIconButton(Ico.PALETTE, BtnStyle.BLUE, 46.dp) { showTheme = true }
+                Spacer(Modifier.width(8.dp))
+                RoundIconButton(Ico.GEAR, BtnStyle.ORANGE, 46.dp) { showSettings = true }
+                Spacer(Modifier.width(8.dp))
+                ZoomBar(zoom, { zoom = it }, Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                RoundIconButton(Ico.BULB, BtnStyle.GREEN, 46.dp) { gs.hint(scope) }
+            }
         }
 
-        // banner ad (Google test ad)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .background(Pal.BarBg)
-                .navigationBarsPadding()
-                .height(54.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            BannerAd()
+        if (adMsg) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 90.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0xCC1E1004))
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                LabelImage(R.drawable.lbl_ad_not_ready, 18.dp)
+            }
         }
     }
 
@@ -356,24 +355,25 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     if (showTheme) ThemeDialog(gs) { showTheme = false }
 
     if (gs.status == Status.WON) {
-        ResultDialog(true) {
+        ResultDialog(true, gs.stars) {
             GameIcon(Ico.COIN, 58.dp)
             Spacer(Modifier.height(8.dp))
             val shown = if (gs.doubled) gs.bonus * 2 else gs.bonus
-            Text(
-                "Bonus +$shown coins",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color(0xFF3F6B1F)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LabelImage(R.drawable.lbl_bonus, 26.dp)
+                Spacer(Modifier.width(6.dp))
+                NumberImage("+$shown", DigitStyle.G, 28.dp)
+                Spacer(Modifier.width(6.dp))
+                LabelImage(R.drawable.lbl_coins, 26.dp)
+            }
             if (!gs.doubled) {
                 Spacer(Modifier.height(14.dp))
-                GlossyButton("2X COINS  (WATCH AD)", BtnStyle.ORANGE, Modifier.fillMaxWidth(), 16.sp) {
+                GlossyButton(R.drawable.lbl_2x_coins, BtnStyle.ORANGE, Modifier.fillMaxWidth(), 40.dp) {
                     watchAd { gs.doubleBonus() }
                 }
             }
             Spacer(Modifier.height(10.dp))
-            GlossyButton("NEXT LEVEL", BtnStyle.GREEN, Modifier.fillMaxWidth(), 18.sp) {
+            GlossyButton(R.drawable.lbl_next_level, BtnStyle.GREEN, Modifier.fillMaxWidth(), 28.dp) {
                 val lv = gs.level
                 if (lv % 3 == 0) {
                     ads.showInterstitial { gs.nextLevel() }
@@ -385,16 +385,33 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     }
 
     if (gs.status == Status.LOST) {
-        ResultDialog(false) {
+        ResultDialog(false, 0) {
             GameIcon(Ico.HEART_OFF, 58.dp)
             if (!gs.reviveUsed) {
                 Spacer(Modifier.height(14.dp))
-                GlossyButton("EXTRA LIFE  (WATCH AD)", BtnStyle.ORANGE, Modifier.fillMaxWidth(), 16.sp) {
+                GlossyButton(R.drawable.lbl_extra_life, BtnStyle.ORANGE, Modifier.fillMaxWidth(), 40.dp) {
                     watchAd { gs.revive() }
                 }
             }
             Spacer(Modifier.height(10.dp))
-            GlossyButton("TRY AGAIN", BtnStyle.GREEN, Modifier.fillMaxWidth(), 18.sp) { gs.startLevel() }
+            GlossyButton(R.drawable.lbl_try_again, BtnStyle.GREEN, Modifier.fillMaxWidth(), 28.dp) { gs.startLevel() }
+        }
+    }
+}
+
+@Composable
+private fun ZoomSign(plus: Boolean, onClick: () -> Unit) {
+    Canvas(
+        Modifier
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .size(20.dp)
+    ) {
+        val w = this.size.width
+        val sw = w * 0.2f
+        drawLine(Color.White, Offset(w * 0.1f, w / 2f), Offset(w * 0.9f, w / 2f), strokeWidth = sw, cap = StrokeCap.Round)
+        if (plus) {
+            drawLine(Color.White, Offset(w / 2f, w * 0.1f), Offset(w / 2f, w * 0.9f), strokeWidth = sw, cap = StrokeCap.Round)
         }
     }
 }
@@ -404,54 +421,33 @@ fun ZoomBar(zoom: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier)
     Row(
         modifier
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF2A2170))
+            .background(Color(0xFF3A230F))
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            "\u2212",
-            color = Color.White,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .clickable { onZoom((zoom - 0.25f).coerceAtLeast(1f)) }
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        )
+        ZoomSign(false) { onZoom((zoom - 0.25f).coerceAtLeast(1f)) }
         Slider(
             value = zoom,
             onValueChange = onZoom,
-            valueRange = 1f..3f,
+            valueRange = 1f..4f,
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(
                 thumbColor = Color(0xFFFFA03A),
-                activeTrackColor = Color(0xFF4FC3F7),
-                inactiveTrackColor = Color(0xFF5A4A9A)
+                activeTrackColor = Color(0xFFFFD27A),
+                inactiveTrackColor = Color(0xFF7A5630)
             )
         )
-        Text(
-            "+",
-            color = Color.White,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .clickable { onZoom((zoom + 0.25f).coerceAtMost(3f)) }
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        )
+        ZoomSign(true) { onZoom((zoom + 0.25f).coerceAtMost(4f)) }
     }
 }
 
 // ------------------------------------------------------------------ dialogs
 
 @Composable
-fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+fun SettingRow(label: Int, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            color = Color(0xFFB8741A),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.weight(1f)
-        )
+        LabelImage(label, 26.dp)
+        Spacer(Modifier.weight(1f))
         OnOffToggle(checked, onChange)
     }
 }
@@ -460,25 +456,25 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 fun SettingsDialog(prefs: Prefs, onClose: () -> Unit, ribbon: BtnStyle = BtnStyle.BLUE, onRestart: (() -> Unit)?) {
     var sound by remember { mutableStateOf(prefs.sound) }
     var vibrate by remember { mutableStateOf(prefs.vibrate) }
-    GamePanel("Settings", onClose = onClose, ribbon = ribbon) {
-        SettingRow("Sound", sound) {
+    GamePanel(R.drawable.lbl_settings, onClose = onClose, ribbon = ribbon) {
+        SettingRow(R.drawable.lbl_sound, sound) {
             sound = it
             prefs.sound = it
         }
         Spacer(Modifier.height(14.dp))
-        SettingRow("Vibration", vibrate) {
+        SettingRow(R.drawable.lbl_vibration, vibrate) {
             vibrate = it
             prefs.vibrate = it
         }
         if (onRestart != null) {
             Spacer(Modifier.height(20.dp))
-            GlossyButton("RESTART LEVEL", BtnStyle.ORANGE, Modifier.fillMaxWidth(), 16.sp) { onRestart() }
+            GlossyButton(R.drawable.lbl_restart, BtnStyle.ORANGE, Modifier.fillMaxWidth(), 26.dp) { onRestart() }
         }
     }
 }
 
 @Composable
-fun ThemePreview(theme: Int, name: String, selected: Boolean, onClick: () -> Unit) {
+fun ThemePreview(theme: Int, nameRes: Int, selected: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(16.dp)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -507,49 +503,43 @@ fun ThemePreview(theme: Int, name: String, selected: Boolean, onClick: () -> Uni
             )
         }
         Spacer(Modifier.height(4.dp))
-        Text(name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Pal.Ink)
+        LabelImage(nameRes, 16.dp)
     }
 }
 
 @Composable
 fun ThemeDialog(gs: GameState, ribbon: BtnStyle = BtnStyle.BLUE, onClose: () -> Unit) {
-    GamePanel("Theme", onClose = onClose, ribbon = ribbon) {
+    GamePanel(R.drawable.lbl_theme, onClose = onClose, ribbon = ribbon) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            ThemePreview(Themes.CLASSIC, "Classic", gs.theme == Themes.CLASSIC) { gs.setThemeIndex(Themes.CLASSIC) }
-            ThemePreview(Themes.NEON, "Neon", gs.theme == Themes.NEON) { gs.setThemeIndex(Themes.NEON) }
-            ThemePreview(Themes.CANDY, "Candy", gs.theme == Themes.CANDY) { gs.setThemeIndex(Themes.CANDY) }
+            ThemePreview(Themes.CLASSIC, R.drawable.lbl_classic, gs.theme == Themes.CLASSIC) { gs.setThemeIndex(Themes.CLASSIC) }
+            ThemePreview(Themes.NEON, R.drawable.lbl_neon, gs.theme == Themes.NEON) { gs.setThemeIndex(Themes.NEON) }
+            ThemePreview(Themes.CANDY, R.drawable.lbl_candy, gs.theme == Themes.CANDY) { gs.setThemeIndex(Themes.CANDY) }
         }
     }
 }
 
 @Composable
 fun HowToDialog(ribbon: BtnStyle = BtnStyle.ORANGE, onClose: () -> Unit) {
-    GamePanel("How to play", onClose = onClose, ribbon = ribbon) {
+    GamePanel(R.drawable.lbl_howto, onClose = onClose, ribbon = ribbon) {
+        // (image, height): one-line images are 20dp tall, two-line images 40dp, so the text size matches
         val lines = listOf(
-            "Tap an arrow to slide it out.",
-            "The path in front of its head must be clear.",
-            "Blocked? You lose a heart. You get 3 hearts per level.",
-            "Clear every arrow to win the level.",
-            "Pinch with two fingers to zoom, drag to move the board."
+            Pair(R.drawable.lbl_how_1, 20.dp),
+            Pair(R.drawable.lbl_how_2, 40.dp),
+            Pair(R.drawable.lbl_how_3, 40.dp),
+            Pair(R.drawable.lbl_how_4, 20.dp),
+            Pair(R.drawable.lbl_how_5, 40.dp)
         )
         for (l in lines) {
-            Text(
-                l,
-                color = Pal.Ink,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
+            LabelImage(l.first, l.second, Modifier.padding(vertical = 5.dp))
         }
     }
 }
 
 @Composable
-fun ResultDialog(win: Boolean, content: @Composable ColumnScope.() -> Unit) {
+fun ResultDialog(win: Boolean, stars: Int, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = { }) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            ResultBanner(win)
+            ResultBanner(win, stars)
             Spacer(Modifier.height(8.dp))
             Column(
                 Modifier

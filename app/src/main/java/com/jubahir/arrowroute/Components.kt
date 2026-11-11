@@ -1,6 +1,7 @@
 package com.jubahir.arrowroute
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -84,21 +87,21 @@ fun starPath(cx: Float, cy: Float, r: Float): Path {
 
 @Composable
 fun GameIcon(kind: Ico, sizeDp: Dp, modifier: Modifier = Modifier, tint: Color = Color.White) {
+    if (kind == Ico.COIN) {
+        Image(
+            painter = painterResource(R.drawable.coin),
+            contentDescription = null,
+            modifier = modifier.size(sizeDp),
+            contentScale = ContentScale.Fit
+        )
+        return
+    }
     Canvas(modifier.size(sizeDp)) {
         val w = this.size.width
         val h = this.size.height
         when (kind) {
             Ico.COIN -> {
-                drawCircle(Color(0xFFD99A00), radius = w * 0.5f)
-                drawCircle(Color(0xFFFFD24A), radius = w * 0.42f)
-                drawCircle(Color(0xFFF2B600), radius = w * 0.3f, style = Stroke(width = w * 0.06f))
-                drawRoundRect(
-                    Color(0xFFF2B600),
-                    topLeft = Offset(w * 0.45f, h * 0.3f),
-                    size = Size(w * 0.1f, h * 0.4f),
-                    cornerRadius = CornerRadius(w * 0.05f)
-                )
-                drawCircle(Color.White.copy(alpha = 0.55f), radius = w * 0.06f, center = Offset(w * 0.3f, h * 0.28f))
+                // drawn by the coin PNG above
             }
             Ico.HEART, Ico.HEART_OFF -> {
                 val p = Path()
@@ -218,14 +221,73 @@ fun GameIcon(kind: Ico, sizeDp: Dp, modifier: Modifier = Modifier, tint: Color =
     }
 }
 
+// ------------------------------------------------------------------ image text (no app fonts)
+
+/** Number sprites, one set per colour style. All pre-rendered PNGs, no system font involved. */
+enum class DigitStyle(val ids: IntArray, val plus: Int) {
+    W(
+        intArrayOf(
+            R.drawable.dw_0, R.drawable.dw_1, R.drawable.dw_2, R.drawable.dw_3, R.drawable.dw_4,
+            R.drawable.dw_5, R.drawable.dw_6, R.drawable.dw_7, R.drawable.dw_8, R.drawable.dw_9
+        ),
+        R.drawable.dw_plus
+    ),
+    G(
+        intArrayOf(
+            R.drawable.dg_0, R.drawable.dg_1, R.drawable.dg_2, R.drawable.dg_3, R.drawable.dg_4,
+            R.drawable.dg_5, R.drawable.dg_6, R.drawable.dg_7, R.drawable.dg_8, R.drawable.dg_9
+        ),
+        R.drawable.dg_plus
+    ),
+    P(
+        intArrayOf(
+            R.drawable.dp_0, R.drawable.dp_1, R.drawable.dp_2, R.drawable.dp_3, R.drawable.dp_4,
+            R.drawable.dp_5, R.drawable.dp_6, R.drawable.dp_7, R.drawable.dp_8, R.drawable.dp_9
+        ),
+        R.drawable.dp_plus
+    )
+}
+
+@Composable
+fun NumberImage(text: String, style: DigitStyle, height: Dp, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        for (ch in text) {
+            val res = when {
+                ch in '0'..'9' -> style.ids[ch - '0']
+                ch == '+' -> style.plus
+                else -> 0
+            }
+            if (res != 0) {
+                Image(
+                    painter = painterResource(res),
+                    contentDescription = null,
+                    modifier = Modifier.height(height),
+                    contentScale = ContentScale.Fit
+                )
+            }
+        }
+    }
+}
+
+/** A text label that was designed as a PNG. Scales down (never stretches) if the space is tight. */
+@Composable
+fun LabelImage(res: Int, height: Dp, modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(res),
+        contentDescription = null,
+        modifier = modifier.height(height),
+        contentScale = ContentScale.Fit
+    )
+}
+
 // ------------------------------------------------------------------ buttons
 
 @Composable
 fun GlossyButton(
-    text: String,
+    label: Int,
     style: BtnStyle,
     modifier: Modifier = Modifier,
-    fontSize: TextUnit = 18.sp,
+    labelHeight: Dp = 26.dp,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(50)
@@ -244,7 +306,7 @@ fun GlossyButton(
                 .clip(shape)
                 .background(Brush.verticalGradient(listOf(style.light, style.base)))
                 .border(2.5.dp, Color.White.copy(alpha = 0.85f), shape)
-                .padding(horizontal = 20.dp, vertical = 11.dp),
+                .padding(horizontal = 20.dp, vertical = 9.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -255,13 +317,7 @@ fun GlossyButton(
                     .clip(shape)
                     .background(Color.White.copy(alpha = 0.35f))
             )
-            Text(
-                text,
-                color = Color.White,
-                fontSize = fontSize,
-                fontWeight = FontWeight.ExtraBold,
-                style = TextStyle(shadow = Shadow(style.dark, Offset(0f, 4f), 2f))
-            )
+            LabelImage(label, labelHeight)
         }
     }
 }
@@ -315,12 +371,7 @@ fun OnOffToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
                 .background(if (!checked) Color(0xFFE9453A) else Color.Transparent),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "off",
-                color = if (!checked) Color.White else Color(0xFFB89A6A),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
+            LabelImage(if (!checked) R.drawable.lbl_off_w else R.drawable.lbl_off_m, 15.dp)
         }
         Box(
             Modifier
@@ -330,12 +381,7 @@ fun OnOffToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
                 .background(if (checked) Color(0xFF3FBF2C) else Color.Transparent),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                "on",
-                color = if (checked) Color.White else Color(0xFFB89A6A),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
+            LabelImage(if (checked) R.drawable.lbl_on_w else R.drawable.lbl_on_m, 15.dp)
         }
     }
 }
@@ -349,13 +395,13 @@ fun CoinPill(coins: Int) {
             Modifier
                 .padding(start = 16.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Pal.Panel)
-                .padding(start = 24.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+                .background(Color(0xCC2B1808))
+                .padding(start = 26.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("$coins", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+            NumberImage("$coins", DigitStyle.W, 20.dp)
         }
-        GameIcon(Ico.COIN, 34.dp)
+        GameIcon(Ico.COIN, 36.dp)
     }
 }
 
@@ -364,7 +410,7 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier) {
     Canvas(modifier.height(24.dp)) {
         val w = this.size.width
         val h = this.size.height
-        drawRoundRect(Color(0xFF4A3036), size = Size(w, h), cornerRadius = CornerRadius(h / 2f))
+        drawRoundRect(Color(0xFF3A2410), size = Size(w, h), cornerRadius = CornerRadius(h / 2f))
         val f = fraction.coerceIn(0f, 1f)
         if (f > 0f) {
             drawRoundRect(
@@ -382,7 +428,7 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun RibbonTitle(text: String, style: BtnStyle, modifier: Modifier = Modifier, fontSize: TextUnit = 20.sp) {
+fun RibbonTitle(label: Int, style: BtnStyle, modifier: Modifier = Modifier, labelHeight: Dp = 24.dp) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val w = this.size.width
@@ -411,14 +457,9 @@ fun RibbonTitle(text: String, style: BtnStyle, modifier: Modifier = Modifier, fo
                 cornerRadius = CornerRadius(h * 0.22f)
             )
         }
-        Text(
-            text,
-            modifier = Modifier.padding(start = 44.dp, end = 44.dp, top = 10.dp, bottom = 16.dp),
-            color = Color.White,
-            fontSize = fontSize,
-            fontWeight = FontWeight.ExtraBold,
-            style = TextStyle(shadow = Shadow(style.dark, Offset(0f, 3f), 2f))
-        )
+        Box(Modifier.padding(start = 44.dp, end = 44.dp, top = 10.dp, bottom = 16.dp)) {
+            LabelImage(label, labelHeight)
+        }
     }
 }
 
@@ -436,39 +477,19 @@ fun StarBadge(gold: Boolean, sizeDp: Dp) {
     }
 }
 
+/** stars = hearts left when the level was won (3 hearts = 3 stars ... 1 heart = 1 star). */
 @Composable
-fun ResultBanner(win: Boolean) {
+fun ResultBanner(win: Boolean, stars: Int) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.Bottom) {
-            StarBadge(win, 46.dp)
-            StarBadge(win, 62.dp)
-            StarBadge(win, 46.dp)
+            StarBadge(win && stars >= 1, 46.dp)
+            StarBadge(win && stars >= 2, 62.dp)
+            StarBadge(win && stars >= 3, 46.dp)
         }
-        RibbonTitle(if (win) "VICTORY!" else "DEFEAT", BtnStyle.GREEN, fontSize = 28.sp)
-    }
-}
-
-@Composable
-fun TitleText(text: String, fontSize: TextUnit, top: Color, bottom: Color, outline: Color) {
-    Box(contentAlignment = Alignment.Center) {
-        val offs = listOf(
-            Offset(-4f, 0f), Offset(4f, 0f), Offset(0f, -4f), Offset(0f, 7f),
-            Offset(-3f, -3f), Offset(3f, 3f), Offset(-3f, 3f), Offset(3f, -3f)
-        )
-        for (o in offs) {
-            Text(
-                text,
-                fontSize = fontSize,
-                fontWeight = FontWeight.Black,
-                color = outline,
-                modifier = Modifier.offset { IntOffset(o.x.roundToInt(), o.y.roundToInt()) }
-            )
-        }
-        Text(
-            text,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Black,
-            style = TextStyle(brush = Brush.verticalGradient(listOf(top, bottom)))
+        RibbonTitle(
+            if (win) R.drawable.lbl_victory else R.drawable.lbl_defeat,
+            BtnStyle.GREEN,
+            labelHeight = 30.dp
         )
     }
 }
@@ -477,7 +498,7 @@ fun TitleText(text: String, fontSize: TextUnit, top: Color, bottom: Color, outli
 
 @Composable
 fun GamePanel(
-    title: String,
+    title: Int,
     onClose: (() -> Unit)?,
     ribbon: BtnStyle = BtnStyle.BLUE,
     content: @Composable ColumnScope.() -> Unit

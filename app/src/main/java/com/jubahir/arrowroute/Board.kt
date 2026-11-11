@@ -56,7 +56,7 @@ object Themes {
 
     fun tileColor(t: Int): Color = when (t) {
         CLASSIC -> Color(0xFFE7D6AB)
-        NEON -> Color(0x14FFFFFF)
+        NEON -> Color(0xB0141B2B)
         else -> Color(0xFFFFFFFF)
     }
 
@@ -175,7 +175,7 @@ private fun distToSeg(p: Offset, a: Offset, b: Offset): Float {
 }
 
 private fun hitTest(gs: GameState, lay: BoardLayout, p: Offset): Arrow? {
-    val thr = max(lay.cell * 0.55f, 34f)
+    val thr = max(lay.cell * 0.5f, 18f)
     var best: Arrow? = null
     var bestD = Float.MAX_VALUE
     for (a in gs.arrows) {
@@ -254,7 +254,6 @@ fun GameBoard(gs: GameState, zoom: Float, onZoom: (Float) -> Unit, fx: Fx, modif
 
     Canvas(
         modifier
-            .background(Themes.boardBg(theme))
             .clipToBounds()
             .onSizeChanged { boardSize = it.toSize() }
             .pointerInput(gs.gen) {
@@ -268,7 +267,7 @@ fun GameBoard(gs: GameState, zoom: Float, onZoom: (Float) -> Unit, fx: Fx, modif
                 // two-finger pinch zoom; one or two fingers also pan the board
                 detectTransformGestures { centroid, panChange, zoomChange, _ ->
                     val oldZoom = zoomNow
-                    val newZoom = (oldZoom * zoomChange).coerceIn(1f, 3f)
+                    val newZoom = (oldZoom * zoomChange).coerceIn(1f, 4f)
                     val ratio = newZoom / oldZoom
                     val cx = boardSize.width / 2f
                     val cy = boardSize.height / 2f

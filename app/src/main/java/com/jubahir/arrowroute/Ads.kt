@@ -1,12 +1,8 @@
 package com.jubahir.arrowroute
 
 import android.app.Activity
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.AdSize
-import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.OnUserEarnedRewardListener
@@ -20,7 +16,6 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
  * Before publishing, replace these AND the App ID in AndroidManifest.xml with your real AdMob IDs.
  */
 object AdIds {
-    const val BANNER = "ca-app-pub-3940256099942544/6300978111"
     const val INTERSTITIAL = "ca-app-pub-3940256099942544/1033173712"
     const val REWARDED = "ca-app-pub-3940256099942544/5224354917"
 }
@@ -126,15 +121,4 @@ class AdManager(private val activity: Activity) {
         }
         ad.show(activity)
     }
-}
-
-@Composable
-fun BannerAd() {
-    AndroidView(factory = { ctx ->
-        AdView(ctx).apply {
-            setAdSize(AdSize.BANNER)
-            adUnitId = AdIds.BANNER
-            loadAd(AdRequest.Builder().build())
-        }
-    })
 }
