@@ -5,6 +5,8 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
@@ -96,7 +98,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
     var w by mutableIntStateOf(1)
     var h by mutableIntStateOf(1)
     var arrows by mutableStateOf<List<Arrow>>(emptyList())
-    var mask by mutableStateOf(BooleanArray(0))
+    var mask by mutableStateOf(BooleanArray(1))
     var shape by mutableStateOf(ShapeType.RECT)
     var totalArrows by mutableIntStateOf(1)
     val ghosts = mutableStateMapOf<Int, Ghost>()
@@ -111,12 +113,50 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
     var stars by mutableIntStateOf(0)
     private var cleared = 0
 
+    // The level currently being played (kept so restart / try again replays the same puzzle).
+    private var current: Level? = null
+    private var currentNo = -1
+
+    // Next level is generated on a background thread while the player is still busy.
+    @Volatile private var prefetched: Level? = null
+    @Volatile private var prefetchedFor = -1
+
     init {
-        startLevel()
+        // big levels take a moment to build, so do the first one off the UI thread
+        Thread {
+            val lv = LevelGen.generate(level, aspect)
+            Handler(Looper.getMainLooper()).post {
+                if (current == null) {
+                    current = lv
+                    currentNo = level
+                    applyLevel(lv)
+                    prefetchNext()
+                }
+            }
+        }.start()
     }
 
-    fun startLevel() {
-        val lv = LevelGen.generate(level, aspect)
+    private fun levelFor(no: Int): Level {
+        val p = prefetched
+        if (p != null && prefetchedFor == no) {
+            prefetched = null
+            return p
+        }
+        return LevelGen.generate(no, aspect)
+    }
+
+    private fun prefetchNext() {
+        val no = level + 1
+        if (prefetchedFor == no) return
+        prefetchedFor = no
+        prefetched = null
+        Thread {
+            val lv = LevelGen.generate(no, aspect)
+            if (prefetchedFor == no) prefetched = lv
+        }.start()
+    }
+
+    private fun applyLevel(lv: Level) {
         w = lv.w
         h = lv.h
         arrows = lv.arrows
@@ -133,6 +173,15 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         stars = 0
         cleared = 0
         gen++
+    }
+
+    fun startLevel() {
+        val cur = current
+        val lv = if (cur != null && currentNo == level) cur else levelFor(level)
+        current = lv
+        currentNo = level
+        applyLevel(lv)
+        prefetchNext()
     }
 
     /** Rewarded ad finished after a win: give the level bonus a second time (2x). */

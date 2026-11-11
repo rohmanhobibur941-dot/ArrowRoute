@@ -40,29 +40,31 @@ class Level(
     val arrows: List<Arrow>
 )
 
-/** Difficulty knobs. avgLen = average arrow length, straight = chance to keep going straight,
- *  blockBias = chance that an arrow is aimed at still-empty cells (so later arrows block it). */
-private class Tier(val avgLen: Float, val straight: Float, val blockBias: Float)
+/** Difficulty knobs. longMin..longMax = length of the long arrows, keepFree = how many arrows are
+ *  allowed to be free at the start (the rest are blocked), straight = chance to keep going straight. */
+private class Tier(val longMin: Int, val longMax: Int, val keepFree: Int, val straight: Float)
+
+/** Only this share of arrows may be short (2-3 cells); everything else is long. */
+private const val SHORT_FRAC = 0.30f
 
 object LevelGen {
 
     /**
      * Arrow count per level: level 1 = 50, level 2 = 65, level 3 = 80 ... (+15 per level).
-     * From level 4 a small deterministic +-8% wobble is added so it does not feel mechanical.
-     * Capped so very late levels stay playable on a phone screen.
+     * From level 4 a small deterministic +-8% wobble is added. Capped so late levels stay playable.
      */
     fun arrowTarget(level: Int): Int {
         val base = 50 + 15 * (level - 1)
         val wobble = if (level <= 3) 0.0 else ((level * 7919) % 17 - 8) / 100.0
-        return (base * (1.0 + wobble)).toInt().coerceIn(50, 420)
+        return (base * (1.0 + wobble)).toInt().coerceIn(50, 250)
     }
 
-    /** Easy -> Medium -> Hard -> Extreme. Longer, twistier arrows that are aimed at blocked cells. */
+    /** Easy -> Medium -> Hard -> Extreme: longer arrows and fewer free arrows at the start. */
     private fun tierFor(level: Int): Tier = when {
-        level <= 4 -> Tier(3.0f, 0.70f, 0.35f)
-        level <= 9 -> Tier(3.6f, 0.55f, 0.60f)
-        level <= 19 -> Tier(4.2f, 0.40f, 0.80f)
-        else -> Tier(5.0f, 0.30f, 0.95f)
+        level <= 4 -> Tier(6, 9, 4, 0.55f)
+        level <= 9 -> Tier(7, 11, 4, 0.45f)
+        level <= 19 -> Tier(8, 14, 3, 0.40f)
+        else -> Tier(10, 18, 3, 0.35f)
     }
 
     fun shapeFor(level: Int): ShapeType {
@@ -149,44 +151,56 @@ object LevelGen {
         return Pair(70, max(6, (70 / aspect).roundToInt()))
     }
 
-    /** aspect = board width / board height of the play area, so the grid fills the screen. */
+    /** aspect = board width / board height of the play area, so the grid fills the screen.
+     *  Runs for up to ~2.5s on big levels, so call it from a background thread when possible. */
     fun generate(level: Int, aspect: Float): Level {
         val shape = shapeFor(level)
         val tier = tierFor(level)
         val target = arrowTarget(level)
-        val size = sizeFor(shape, aspect, (target * tier.avgLen).toInt())
+        val avg = SHORT_FRAC * 2.5f + (1f - SHORT_FRAC) * (tier.longMin + tier.longMax) / 2f * 0.8f
+        val size = sizeFor(shape, aspect, (target * avg).toInt())
         val w = size.first
         val h = size.second
         val mask = makeMask(shape, w, h)
         val rnd = Random(System.nanoTime())
+        val deadline = System.nanoTime() + 2_500_000_000L
 
-        var mean = tier.avgLen * 1.05f
+        var scale = 1f
         var best: Level? = null
         var bestDiff = Int.MAX_VALUE
-        // Every attempt is solvable by construction; we retry only to land close to the arrow target.
-        for (attempt in 0 until 6) {
-            val g = Gen(w, h, rnd, tier.straight, tier.blockBias)
-            val paths = g.build(mask, mean)
-            val arrows = paths.mapIndexed { i, p -> Arrow(i, p.map { k -> Cell(k % w, k / w) }) }
-            val diff = abs(arrows.size - target)
+        // Every attempt is solvable (checked while building); we retry only to land near the arrow target.
+        for (attempt in 0 until 5) {
+            val g = Gen(w, h, rnd, tier.straight)
+            g.build(mask, tier.longMin, tier.longMax, tier.keepFree, scale)
+            g.optimize(tier.keepFree, deadline)
+            val list = g.arrows.mapIndexed { i, p -> Arrow(i, p.map { k -> Cell(k % w, k / w) }) }
+            val diff = abs(list.size - target)
             if (diff < bestDiff) {
                 bestDiff = diff
-                best = Level(w, h, mask, shape, arrows)
+                best = Level(w, h, mask, shape, list)
             }
-            if (diff <= target * 0.05) break
-            mean = (mean * arrows.size / target).coerceIn(2f, 16f)
+            if (diff <= target * 0.06) break
+            if (System.nanoTime() > deadline) break
+            scale = (scale * list.size / target).coerceIn(0.5f, 2f)
         }
         return checkNotNull(best)
     }
 }
 
 /**
- * Level builder. Arrows are placed from the middle outwards and each new arrow's exit ray must
- * not touch anything placed before it, so removing arrows in reverse placement order always works
- * (every level is solvable). Leftover cells are then merged into 2-cell arrows or tails of
- * existing arrows (with the same guarantee) so the board stays dense.
+ * Level builder, in two steps.
+ *
+ * 1) build(): arrows are placed one by one (placement order = reverse removal order, so the level is
+ *    solvable). While more than `keep` arrows are still unblocked, the next arrow is forced to
+ *    cover a cell in front of an unblocked arrow, so arrows block each other heavily.
+ * 2) optimize(): flips arrows / grows arrow tails into empty cells so that even more arrows are
+ *    blocked, and fills holes. Every change is checked with a dependency graph (no deadlocks).
  */
-private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, val bias: Float) {
+private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float) {
+
+    val arrows = ArrayList<List<Int>>()
+    private var free = BooleanArray(0)
+    private var owner = IntArray(0)
 
     private fun px(k: Int) = k % w
     private fun py(k: Int) = k / w
@@ -204,32 +218,38 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, 
         }
     }
 
-    private fun rayFree(p: List<Int>, occ: BooleanArray): Boolean {
+    private fun rayCells(p: List<Int>): List<Int> {
         val d = dirOf(p)
         val head = p[p.size - 1]
         var x = px(head) + d.dx
         var y = py(head) + d.dy
+        val out = ArrayList<Int>()
         while (x in 0 until w && y in 0 until h) {
-            val k = y * w + x
-            if (occ[k] || p.contains(k)) return false
+            out.add(y * w + x)
             x += d.dx
             y += d.dy
+        }
+        return out
+    }
+
+    private fun rayFree(p: List<Int>, occ: BooleanArray): Boolean {
+        for (k in rayCells(p)) {
+            if (occ[k] || p.contains(k)) return false
         }
         return true
     }
 
-    /** Number of still-empty cells in front of the head (these will block the arrow later). */
-    private fun freeAhead(p: List<Int>, free: BooleanArray): Int {
-        val d = dirOf(p)
-        val head = p[p.size - 1]
-        var x = px(head) + d.dx
-        var y = py(head) + d.dy
-        var n = 0
-        while (x in 0 until w && y in 0 until h) {
-            if (free[y * w + x]) n++
-            x += d.dx
-            y += d.dy
+    private fun selfBlock(p: List<Int>): Boolean {
+        for (k in rayCells(p)) {
+            if (p.contains(k)) return true
         }
+        return false
+    }
+
+    /** Number of still-empty cells in front of the head (these can be filled by a blocker later). */
+    private fun freeAhead(p: List<Int>, fr: BooleanArray): Int {
+        var n = 0
+        for (k in rayCells(p)) if (fr[k]) n++
         return n
     }
 
@@ -247,7 +267,7 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, 
         }
     }
 
-    private fun freeDegree(x: Int, y: Int, free: BooleanArray, cells: List<Int>): Int {
+    private fun freeDegree(x: Int, y: Int, cells: List<Int>): Int {
         var n = 0
         for (e in Dir.values()) {
             val ax = x + e.dx
@@ -260,8 +280,8 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, 
         return n
     }
 
-    private fun grow(start: Int, free: BooleanArray, target: Int): MutableList<Int> {
-        val cells = mutableListOf(start)
+    private fun growFrom(body: MutableList<Int>, target: Int): MutableList<Int> {
+        val cells = body
         var d: Dir? = null
         while (cells.size < target) {
             val cur = cells[cells.size - 1]
@@ -284,7 +304,7 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, 
                 var bestDeg = Int.MAX_VALUE
                 val cand = ArrayList<Dir>()
                 for (o in opts) {
-                    val dg = freeDegree(cx + o.dx, cy + o.dy, free, cells)
+                    val dg = freeDegree(cx + o.dx, cy + o.dy, cells)
                     if (dg < bestDeg) {
                         bestDeg = dg
                         cand.clear()
@@ -305,110 +325,316 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float, 
         return cells
     }
 
-    fun build(mask: BooleanArray, meanLen: Float): List<List<Int>> {
-        val free = mask.copyOf()
+    /** An arrow whose HEAD is cell c and points in direction d; its body grows behind the head. */
+    private fun headAt(c: Int, d: Dir, occ: BooleanArray, target: Int): List<Int>? {
+        val bx = px(c) - d.dx
+        val by = py(c) - d.dy
+        if (bx < 0 || bx >= w || by < 0 || by >= h) return null
+        val b = by * w + bx
+        if (!free[b]) return null
+        val cells = growFrom(mutableListOf(c, b), target)
+        val q = cells.reversed()
+        if (q.size < 2) return null
+        if (!rayFree(q, occ)) return null
+        if (freeAhead(q, free) < 1) return null
+        return q
+    }
+
+    private fun pickLen(longMin: Int, longMax: Int, scale: Float): Int {
+        return if (rnd.nextFloat() < SHORT_FRAC) {
+            2 + rnd.nextInt(2)
+        } else {
+            val t = ((longMin + rnd.nextInt(longMax - longMin + 1)) * scale).roundToInt()
+            max(4, t)
+        }
+    }
+
+    fun build(mask: BooleanArray, longMin: Int, longMax: Int, keep: Int, scale: Float) {
+        arrows.clear()
+        free = mask.copyOf()
         val occ = BooleanArray(w * h)
+        val dead = BooleanArray(w * h)
 
         val cx = (w - 1) / 2.0
         val cy = (h - 1) / 2.0
         val maxd = hypot(cx, cy)
         val order = (0 until w * h)
             .filter { mask[it] }
-            .map { k -> Pair(k, hypot(px(k) - cx, py(k) - cy) + rnd.nextDouble() * maxd * 0.5) }
+            .map { k -> Pair(k, hypot(px(k) - cx, py(k) - cy) + rnd.nextDouble() * maxd * 0.35) }
             .sortedBy { it.second }
             .map { it.first }
 
-        val arrows = ArrayList<List<Int>>()
-        val hardMax = max(8, (meanLen * 2f).toInt())
-
-        for (c in order) {
-            if (!free[c]) continue
-            var placed = false
-            var attempt = 0
-            while (attempt < 8 && !placed) {
-                val target = if (attempt >= 5) {
-                    2
-                } else {
-                    val t = (meanLen * (0.5f + rnd.nextFloat())).roundToInt()
-                    min(hardMax, max(2, t))
-                }
-                val p = grow(c, free, target)
-                if (p.size < 2) break
-                val rev = p.reversed()
-                val a = freeAhead(p, free)
-                val b = freeAhead(rev, free)
-                val preferBlocked = rnd.nextFloat() < bias
-                val first: List<Int> = if ((a >= b) == preferBlocked) p else rev
-                val second: List<Int> = if (first === p) rev else p
-                for (q in listOf(first, second)) {
-                    if (rayFree(q, occ)) {
-                        arrows.add(q)
-                        for (k in q) {
-                            occ[k] = true
-                            free[k] = false
-                        }
-                        placed = true
-                        break
+        var ptr = 0
+        var unblocked = ArrayList<Int>()
+        var guard = 0
+        while (guard < w * h * 4) {
+            guard++
+            // seed cells: first the cells in front of unblocked arrows (so they get blocked), then centre-out
+            val seeds = ArrayList<Int>()
+            if (unblocked.size > keep) {
+                val cov = HashMap<Int, Int>()
+                for (i in unblocked) {
+                    for (k in rayCells(arrows[i])) {
+                        if (free[k] && !dead[k]) cov[k] = (cov[k] ?: 0) + 1
                     }
                 }
-                attempt++
+                if (cov.isNotEmpty()) {
+                    val scored = cov.entries
+                        .map { Pair(it.key, -it.value + rnd.nextDouble() * 1.5) }
+                        .sortedBy { it.second }
+                        .take(6)
+                    for (p in scored) seeds.add(p.first)
+                }
+            }
+            while (ptr < order.size && (!free[order[ptr]] || dead[order[ptr]])) ptr++
+            if (ptr < order.size) seeds.add(order[ptr])
+            if (seeds.isEmpty()) break
+
+            for (c in seeds) {
+                var cand: List<Int>? = null
+                var attempt = 0
+                while (attempt < 8 && cand == null) {
+                    attempt++
+                    val t = pickLen(longMin, longMax, scale)
+                    val dirs = Dir.values().toMutableList()
+                    dirs.shuffle(rnd)
+                    for (d in dirs) {
+                        val q = headAt(c, d, occ, t)
+                        if (q != null) {
+                            cand = q
+                            break
+                        }
+                    }
+                    if (cand == null) {
+                        val p = growFrom(mutableListOf(c), t)
+                        if (p.size >= 2) {
+                            val rev = p.reversed()
+                            val pair = if (freeAhead(p, free) >= freeAhead(rev, free)) listOf(p, rev) else listOf(rev, p)
+                            for (q in pair) {
+                                if (rayFree(q, occ) && freeAhead(q, free) >= 1) {
+                                    cand = q
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                if (cand != null) {
+                    arrows.add(cand)
+                    for (k in cand) {
+                        occ[k] = true
+                        free[k] = false
+                    }
+                    val nf = ArrayList<Int>()
+                    for (i in unblocked) {
+                        var blocked = false
+                        for (k in cand) {
+                            if (onRay(arrows[i], k)) {
+                                blocked = true
+                                break
+                            }
+                        }
+                        if (!blocked) nf.add(i)
+                    }
+                    nf.add(arrows.size - 1)
+                    unblocked = nf
+                    break
+                } else {
+                    dead[c] = true
+                }
             }
         }
+    }
 
-        // Repair: fill leftover cells so there are no big empty holes.
-        val dirs = Dir.values().toMutableList()
-        for (pass in 0 until 3) {
-            for (c in order) {
-                if (!free[c]) continue
-                var done = false
+    // ---------------------------------------------------------------- dependency graph
 
-                // 1) new 2-cell arrow with a free neighbour (placed last, so only its own ray matters)
-                dirs.shuffle(rnd)
-                for (dd in dirs) {
-                    val nx = px(c) + dd.dx
-                    val ny = py(c) + dd.dy
+    /** deps[i] = arrows that currently sit in front of arrow i (they must leave first). */
+    private fun computeDeps(): Array<IntArray> {
+        val n = arrows.size
+        val stamp = IntArray(n) { -1 }
+        val tmp = IntArray(n + 1)
+        return Array(n) { i ->
+            val a = arrows[i]
+            val d = dirOf(a)
+            val head = a[a.size - 1]
+            var x = px(head) + d.dx
+            var y = py(head) + d.dy
+            var cnt = 0
+            while (x in 0 until w && y in 0 until h) {
+                val o = owner[y * w + x]
+                if (o >= 0 && stamp[o] != i) {
+                    stamp[o] = i
+                    tmp[cnt++] = o
+                }
+                x += d.dx
+                y += d.dy
+            }
+            tmp.copyOf(cnt)
+        }
+    }
+
+    /** True if arrows can all be removed one after another (no two arrows block each other in a loop). */
+    private fun acyclic(deps: Array<IntArray>): Boolean {
+        val n = deps.size
+        val indeg = IntArray(n) { deps[it].size }
+        val rev = Array(n) { ArrayList<Int>() }
+        for (i in 0 until n) for (j in deps[i]) rev[j].add(i)
+        val stack = IntArray(n + 1)
+        var sp = 0
+        for (i in 0 until n) if (indeg[i] == 0) stack[sp++] = i
+        var seen = 0
+        while (sp > 0) {
+            val i = stack[--sp]
+            seen++
+            for (u in rev[i]) {
+                indeg[u]--
+                if (indeg[u] == 0) stack[sp++] = u
+            }
+        }
+        return seen == n
+    }
+
+    /** Paths through empty cells from `start` to a cell next to the TAIL of some arrow. */
+    private fun pathsToTail(start: Int, maxd: Int): ArrayList<Pair<List<Int>, Int>> {
+        val prev = HashMap<Int, Int>()
+        val depth = HashMap<Int, Int>()
+        prev[start] = -1
+        depth[start] = 0
+        val q = ArrayList<Int>()
+        q.add(start)
+        val out = ArrayList<Pair<List<Int>, Int>>()
+        var qi = 0
+        while (qi < q.size) {
+            val v = q[qi]
+            qi++
+            val vx = px(v)
+            val vy = py(v)
+            for (d in Dir.values()) {
+                val nx = vx + d.dx
+                val ny = vy + d.dy
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
+                val k = ny * w + nx
+                val o = owner[k]
+                if (o >= 0 && arrows[o][0] == k) {
+                    val p = ArrayList<Int>()
+                    var c = v
+                    while (c != -1) {
+                        p.add(c)
+                        c = prev[c] ?: -1
+                    }
+                    out.add(Pair(p, o))
+                }
+            }
+            val dv = depth[v] ?: 0
+            if (dv < maxd) {
+                for (d in Dir.values()) {
+                    val nx = vx + d.dx
+                    val ny = vy + d.dy
                     if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
-                    val n = ny * w + nx
-                    if (!free[n]) continue
-                    for (q in listOf(listOf(c, n), listOf(n, c))) {
-                        if (rayFree(q, occ)) {
-                            arrows.add(q)
-                            occ[c] = true
-                            occ[n] = true
-                            free[c] = false
-                            free[n] = false
+                    val k = ny * w + nx
+                    if (free[k] && !prev.containsKey(k)) {
+                        prev[k] = v
+                        depth[k] = dv + 1
+                        q.add(k)
+                    }
+                }
+            }
+        }
+        out.shuffle(rnd)
+        out.sortBy { it.first.size }
+        return out
+    }
+
+    /** Grow the tail of arrow b through the empty cells in `path` (listed from the tail side back to the start). */
+    private fun tryExtend(path: List<Int>, b: Int): Boolean {
+        val newCells = path.reversed()
+        val old = arrows[b]
+        val nb = ArrayList<Int>(newCells.size + old.size)
+        nb.addAll(newCells)
+        nb.addAll(old)
+        if (selfBlock(nb)) return false
+        arrows[b] = nb
+        for (k in newCells) owner[k] = b
+        if (acyclic(computeDeps())) {
+            for (k in newCells) free[k] = false
+            return true
+        }
+        arrows[b] = old
+        for (k in newCells) owner[k] = -1
+        return false
+    }
+
+    fun optimize(keep: Int, deadline: Long) {
+        owner = IntArray(w * h) { -1 }
+        for (i in arrows.indices) for (k in arrows[i]) owner[k] = i
+
+        var stall = 0
+        var round = 0
+        while (round < 120 && System.nanoTime() < deadline) {
+            round++
+            val deps = computeDeps()
+            val fr = ArrayList<Int>()
+            for (i in deps.indices) if (deps[i].isEmpty()) fr.add(i)
+            if (fr.size <= keep) break
+            fr.shuffle(rnd)
+            var prog = false
+            for (idx in keep until fr.size) {
+                if (System.nanoTime() > deadline) break
+                val a = fr[idx]
+
+                // 1) point the arrow the other way if that side is blocked (and nothing deadlocks)
+                val old = arrows[a]
+                val rev = old.reversed()
+                if (!selfBlock(rev)) {
+                    arrows[a] = rev
+                    val d2 = computeDeps()
+                    if (d2[a].isNotEmpty() && acyclic(d2)) {
+                        prog = true
+                        continue
+                    }
+                    arrows[a] = old
+                }
+
+                // 2) grow the tail of another arrow into an empty cell in front of this arrow
+                val gaps = ArrayList<Int>()
+                for (k in rayCells(arrows[a])) if (free[k]) gaps.add(k)
+                gaps.shuffle(rnd)
+                var done = false
+                var gi = 0
+                while (gi < gaps.size && gi < 12 && !done) {
+                    val paths = pathsToTail(gaps[gi], 12)
+                    var pi = 0
+                    while (pi < paths.size && pi < 16) {
+                        val pr = paths[pi]
+                        if (pr.second != a && tryExtend(pr.first, pr.second)) {
                             done = true
                             break
                         }
+                        pi++
                     }
-                    if (done) break
+                    gi++
                 }
-                if (done) continue
+                if (done) prog = true
+            }
+            if (!prog) {
+                stall++
+                if (stall >= 3) break
+            } else {
+                stall = 0
+            }
+        }
 
-                // 2) extend the tail of a neighbouring arrow, if no ray that matters crosses the cell
-                for (i in arrows.indices) {
-                    val a = arrows[i]
-                    val t = a[0]
-                    if (abs(px(t) - px(c)) + abs(py(t) - py(c)) != 1) continue
-                    if (onRay(a, c)) continue
-                    var ok = true
-                    for (j in i + 1 until arrows.size) {
-                        if (onRay(arrows[j], c)) {
-                            ok = false
-                            break
-                        }
-                    }
-                    if (!ok) continue
-                    val na = ArrayList<Int>(a.size + 1)
-                    na.add(c)
-                    na.addAll(a)
-                    arrows[i] = na
-                    occ[c] = true
-                    free[c] = false
-                    break
+        // fill the remaining holes by growing tails (no new arrows, so no new free arrows)
+        for (pass in 0 until 2) {
+            for (c in 0 until w * h) {
+                if (!free[c]) continue
+                val paths = pathsToTail(c, 2)
+                var pi = 0
+                while (pi < paths.size && pi < 6) {
+                    if (tryExtend(paths[pi].first, paths[pi].second)) break
+                    pi++
                 }
             }
         }
-        return arrows
     }
 }
