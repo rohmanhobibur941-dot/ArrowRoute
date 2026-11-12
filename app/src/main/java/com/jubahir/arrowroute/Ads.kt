@@ -1,6 +1,8 @@
 package com.jubahir.arrowroute
 
 import android.app.Activity
+import android.os.Handler
+import android.os.Looper
 import com.unity3d.ads.IUnityAdsInitializationListener
 import com.unity3d.ads.IUnityAdsLoadListener
 import com.unity3d.ads.IUnityAdsShowListener
@@ -20,6 +22,9 @@ object AdIds {
     const val BANNER = "Banner_Android"
 
     const val TEST_MODE = false
+
+    /** How long a tapped ad button waits for the ad to load (slow internet) before giving up. */
+    const val WAIT_MS = 10_000L
 }
 
 class AdManager(private val activity: Activity) {
@@ -29,6 +34,14 @@ class AdManager(private val activity: Activity) {
     private var rewardedLoading = false
     private var interstitialReady = false
     private var interstitialLoading = false
+
+    // A rewarded ad was requested while it was not loaded yet (e.g. slow internet): it is loaded now
+    // and shown as soon as it is ready, or given up after WAIT_MS.
+    private var pendingReward: (() -> Unit)? = null
+    private var pendingUnavailable: (() -> Unit)? = null
+    private var pendingWait: ((Boolean) -> Unit)? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val timeout = Runnable { finishPending(false) }
 
     /** Initialises Unity Ads (once) and then preloads the rewarded and interstitial placements. */
     fun loadAll() {
@@ -53,7 +66,10 @@ class AdManager(private val activity: Activity) {
                 }
 
                 override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
-                    activity.runOnUiThread { initStarted = false }
+                    activity.runOnUiThread {
+                        initStarted = false
+                        finishPending(false)
+                    }
                 }
             }
         )
@@ -67,6 +83,14 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     rewardedReady = true
                     rewardedLoading = false
+                    if (pendingReward != null) {
+                        val r = pendingReward
+                        val u = pendingUnavailable
+                        val w = pendingWait
+                        clearPending()
+                        w?.invoke(false)
+                        if (r != null && u != null) showRewarded(r, u)
+                    }
                 }
             }
 
@@ -74,6 +98,7 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     rewardedReady = false
                     rewardedLoading = false
+                    finishPending(false)
                 }
             }
         })
@@ -99,16 +124,38 @@ class AdManager(private val activity: Activity) {
         })
     }
 
-    /** The reward is given only when the video was watched to the end. */
-    fun showRewarded(onReward: () -> Unit, onUnavailable: () -> Unit) {
-        if (!ready) {
-            loadAll()
-            onUnavailable()
-            return
+    private fun clearPending() {
+        handler.removeCallbacks(timeout)
+        pendingReward = null
+        pendingUnavailable = null
+        pendingWait = null
+    }
+
+    /** Ends a waiting request: loaded = false means it timed out or the load failed. */
+    private fun finishPending(loaded: Boolean) {
+        val u = pendingUnavailable
+        val w = pendingWait
+        clearPending()
+        if (!loaded) {
+            w?.invoke(false)
+            u?.invoke()
         }
-        if (!rewardedReady) {
-            loadRewarded()
-            onUnavailable()
+    }
+
+    /**
+     * The reward is given only when the video was watched to the end.
+     * If the ad is not loaded yet, loading starts now and the ad is shown when it is ready;
+     * onWait(true) is called while waiting and onWait(false) when the wait is over.
+     */
+    fun showRewarded(onReward: () -> Unit, onUnavailable: () -> Unit, onWait: (Boolean) -> Unit = {}) {
+        if (!ready || !rewardedReady) {
+            if (pendingReward != null) return   // already waiting for one
+            pendingReward = onReward
+            pendingUnavailable = onUnavailable
+            pendingWait = onWait
+            onWait(true)
+            handler.postDelayed(timeout, AdIds.WAIT_MS)
+            if (!ready) loadAll() else loadRewarded()
             return
         }
         rewardedReady = false

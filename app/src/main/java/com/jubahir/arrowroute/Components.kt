@@ -232,13 +232,6 @@ enum class DigitStyle(val ids: IntArray, val plus: Int) {
         ),
         R.drawable.dw_plus
     ),
-    G(
-        intArrayOf(
-            R.drawable.dg_0, R.drawable.dg_1, R.drawable.dg_2, R.drawable.dg_3, R.drawable.dg_4,
-            R.drawable.dg_5, R.drawable.dg_6, R.drawable.dg_7, R.drawable.dg_8, R.drawable.dg_9
-        ),
-        R.drawable.dg_plus
-    ),
     P(
         intArrayOf(
             R.drawable.dp_0, R.drawable.dp_1, R.drawable.dp_2, R.drawable.dp_3, R.drawable.dp_4,
@@ -387,23 +380,6 @@ fun OnOffToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 // ------------------------------------------------------------------ pills, bars, ribbons
-
-@Composable
-fun CoinPill(coins: Int) {
-    Box(contentAlignment = Alignment.CenterStart) {
-        Row(
-            Modifier
-                .padding(start = 16.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Color(0xCC2B1808))
-                .padding(start = 26.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            NumberImage("$coins", DigitStyle.W, 20.dp)
-        }
-        GameIcon(Ico.COIN, 36.dp)
-    }
-}
 
 @Composable
 fun ProgressBar(fraction: Float, modifier: Modifier = Modifier) {

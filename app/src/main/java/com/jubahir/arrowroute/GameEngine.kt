@@ -1,5 +1,12 @@
 package com.jubahir.arrowroute
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
@@ -29,8 +36,8 @@ data class Arrow(val id: Int, val cells: List<Cell>) {
         }
 }
 
-/** Board silhouettes. Levels cycle through these so the board is not always a square. */
-enum class ShapeType { RECT, CIRCLE, OCTAGON, PLUS, HEART, RING }
+/** Board silhouettes: square, circle, the numbers 1 2 3, the letters A B C and a few animals. */
+enum class ShapeType { SQUARE, CIRCLE, ONE, LETTER_A, CAT, TWO, LETTER_B, FISH, THREE, LETTER_C, RABBIT, BEAR }
 
 class Level(
     val w: Int,
@@ -44,27 +51,27 @@ class Level(
  *  allowed to be free at the start (the rest are blocked), straight = chance to keep going straight. */
 private class Tier(val longMin: Int, val longMax: Int, val keepFree: Int, val straight: Float)
 
-/** Only this share of arrows may be short (2-3 cells); everything else is long. */
-private const val SHORT_FRAC = 0.30f
+/** No arrow is shorter than this many cells. */
+private const val MIN_LEN = 4
 
 object LevelGen {
 
     /**
-     * Arrow count per level: level 1 = 50, level 2 = 65, level 3 = 80 ... (+15 per level).
-     * From level 4 a small deterministic +-8% wobble is added. Capped so late levels stay playable.
+     * Arrow count per level: level 1 = 80, level 2 = 100, level 3 = 120 ... (+20 per level).
+     * From level 4 a small deterministic +-8% wobble is added. Capped for very late levels.
      */
     fun arrowTarget(level: Int): Int {
-        val base = 50 + 15 * (level - 1)
+        val base = 80 + 20 * (level - 1)
         val wobble = if (level <= 3) 0.0 else ((level * 7919) % 17 - 8) / 100.0
-        return (base * (1.0 + wobble)).toInt().coerceIn(50, 250)
+        return (base * (1.0 + wobble)).toInt().coerceIn(80, 400)
     }
 
     /** Easy -> Medium -> Hard -> Extreme: longer arrows and fewer free arrows at the start. */
     private fun tierFor(level: Int): Tier = when {
-        level <= 4 -> Tier(6, 9, 4, 0.55f)
-        level <= 9 -> Tier(7, 11, 4, 0.45f)
-        level <= 19 -> Tier(8, 14, 3, 0.40f)
-        else -> Tier(10, 18, 3, 0.35f)
+        level <= 4 -> Tier(4, 8, 4, 0.55f)
+        level <= 9 -> Tier(5, 10, 4, 0.45f)
+        level <= 19 -> Tier(6, 12, 3, 0.40f)
+        else -> Tier(7, 14, 3, 0.35f)
     }
 
     fun shapeFor(level: Int): ShapeType {
@@ -72,34 +79,133 @@ object LevelGen {
         return all[(level - 1) % all.size]
     }
 
+    /** Draws the silhouette with android.graphics and turns it into a grid of cells. */
     fun makeMask(shape: ShapeType, w: Int, h: Int): BooleanArray {
+        val sc = 4
+        val bw = w * sc
+        val bh = h * sc
+        val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = android.graphics.Color.WHITE
+        p.style = Paint.Style.FILL
+        drawShape(c, p, shape, bw.toFloat(), bh.toFloat())
+        val pix = IntArray(bw * bh)
+        bmp.getPixels(pix, 0, bw, 0, 0, bw, bh)
+        bmp.recycle()
         val m = BooleanArray(w * h)
-        val cx = (w - 1) / 2.0
-        val cy = (h - 1) / 2.0
-        val rx = w / 2.0
-        val ry = h / 2.0
         for (y in 0 until h) {
             for (x in 0 until w) {
-                val dx = (x - cx) / rx
-                val dy = (y - cy) / ry
-                val ok = when (shape) {
-                    ShapeType.RECT -> !(abs(dx) > 0.85 && abs(dy) > 0.85)
-                    ShapeType.CIRCLE -> abs(dx).pow(2.6) + abs(dy).pow(2.6) <= 1.0
-                    ShapeType.OCTAGON -> abs(dx) + abs(dy) <= 1.45
-                    ShapeType.HEART -> {
-                        val u = dx * 1.2
-                        val v = -dy * 1.15 + 0.1
-                        val a = u * u + v * v - 1.0
-                        a * a * a - u * u * v * v * v <= 0.0
-                    }
-                    ShapeType.PLUS -> abs(dx) <= 0.55 || abs(dy) <= 0.55
-                    ShapeType.RING -> {
-                        val r2 = dx * dx + dy * dy
-                        r2 <= 1.0 && r2 >= 0.07
+                var sum = 0
+                for (yy in 0 until sc) {
+                    for (xx in 0 until sc) {
+                        sum += pix[(y * sc + yy) * bw + x * sc + xx] ushr 24
                     }
                 }
-                m[y * w + x] = ok
+                m[y * w + x] = sum >= 128 * sc * sc
             }
+        }
+        return dropSpecks(m, w, h)
+    }
+
+    private fun drawGlyph(c: Canvas, p: Paint, text: String, bw: Float, bh: Float) {
+        p.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        p.style = Paint.Style.FILL_AND_STROKE
+        p.strokeWidth = bh * 0.035f
+        p.textSize = bh
+        val b = Rect()
+        p.getTextBounds(text, 0, text.length, b)
+        val fit = (bh * 0.94f) / b.height()
+        p.textSize = bh * fit
+        p.getTextBounds(text, 0, text.length, b)
+        val gw = b.width().toFloat()
+        val sx = (bw * 0.96f / gw).coerceIn(0.8f, 1.5f)
+        c.save()
+        c.scale(sx, 1f, bw / 2f, bh / 2f)
+        val x = (bw - gw) / 2f - b.left
+        val y = (bh - b.height()) / 2f - b.top
+        c.drawText(text, x, y, p)
+        c.restore()
+        p.style = Paint.Style.FILL
+    }
+
+    private fun drawShape(c: Canvas, p: Paint, shape: ShapeType, bw: Float, bh: Float) {
+        // animals are drawn in a box that is at most 1.5 times as tall as wide
+        val rh = min(bh, bw * 1.5f)
+        val top = (bh - rh) / 2f
+        fun ov(cx: Float, cy: Float, rx: Float, ry: Float): RectF =
+            RectF((cx - rx) * bw, top + (cy - ry) * rh, (cx + rx) * bw, top + (cy + ry) * rh)
+        fun poly(vararg pts: Float) {
+            val path = Path()
+            path.moveTo(pts[0] * bw, top + pts[1] * rh)
+            var i = 2
+            while (i < pts.size) {
+                path.lineTo(pts[i] * bw, top + pts[i + 1] * rh)
+                i += 2
+            }
+            path.close()
+            c.drawPath(path, p)
+        }
+        when (shape) {
+            ShapeType.SQUARE -> c.drawRoundRect(RectF(0f, 0f, bw, bh), bw * 0.05f, bw * 0.05f, p)
+            ShapeType.CIRCLE -> c.drawOval(RectF(0f, 0f, bw, bh), p)
+            ShapeType.ONE -> drawGlyph(c, p, "1", bw, bh)
+            ShapeType.TWO -> drawGlyph(c, p, "2", bw, bh)
+            ShapeType.THREE -> drawGlyph(c, p, "3", bw, bh)
+            ShapeType.LETTER_A -> drawGlyph(c, p, "A", bw, bh)
+            ShapeType.LETTER_B -> drawGlyph(c, p, "B", bw, bh)
+            ShapeType.LETTER_C -> drawGlyph(c, p, "C", bw, bh)
+            ShapeType.CAT -> {
+                c.drawOval(ov(0.5f, 0.6f, 0.42f, 0.34f), p)
+                poly(0.08f, 0.52f, 0.12f, 0.04f, 0.46f, 0.28f)
+                poly(0.92f, 0.52f, 0.88f, 0.04f, 0.54f, 0.28f)
+            }
+            ShapeType.FISH -> {
+                c.drawOval(ov(0.42f, 0.5f, 0.41f, 0.31f), p)
+                poly(0.66f, 0.5f, 0.99f, 0.16f, 0.99f, 0.84f)
+                poly(0.30f, 0.24f, 0.48f, 0.04f, 0.62f, 0.26f)
+            }
+            ShapeType.RABBIT -> {
+                c.drawOval(ov(0.36f, 0.19f, 0.10f, 0.19f), p)
+                c.drawOval(ov(0.64f, 0.19f, 0.10f, 0.19f), p)
+                c.drawOval(ov(0.5f, 0.46f, 0.26f, 0.19f), p)
+                c.drawOval(ov(0.5f, 0.78f, 0.34f, 0.21f), p)
+            }
+            ShapeType.BEAR -> {
+                c.drawOval(ov(0.5f, 0.56f, 0.42f, 0.38f), p)
+                c.drawOval(ov(0.17f, 0.2f, 0.15f, 0.12f), p)
+                c.drawOval(ov(0.83f, 0.2f, 0.15f, 0.12f), p)
+            }
+        }
+    }
+
+    /** Removes tiny islands (fewer than 12 cells) that no arrow could ever use. */
+    private fun dropSpecks(m: BooleanArray, w: Int, h: Int): BooleanArray {
+        val seen = BooleanArray(w * h)
+        val stack = IntArray(w * h)
+        for (start in 0 until w * h) {
+            if (!m[start] || seen[start]) continue
+            var sp = 0
+            stack[sp++] = start
+            seen[start] = true
+            val comp = ArrayList<Int>()
+            while (sp > 0) {
+                val k = stack[--sp]
+                comp.add(k)
+                val x = k % w
+                val y = k / w
+                for (d in Dir.values()) {
+                    val nx = x + d.dx
+                    val ny = y + d.dy
+                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
+                    val nk = ny * w + nx
+                    if (m[nk] && !seen[nk]) {
+                        seen[nk] = true
+                        stack[sp++] = nk
+                    }
+                }
+            }
+            if (comp.size < 12) for (k in comp) m[k] = false
         }
         return m
     }
@@ -139,16 +245,16 @@ object LevelGen {
 
     /** Smallest grid (with the given width/height ratio) whose silhouette has enough cells. */
     private fun sizeFor(shape: ShapeType, aspect: Float, needed: Int): Pair<Int, Int> {
-        var w = 6
-        while (w < 70) {
-            val h = max(6, (w / aspect).roundToInt())
+        var w = 8
+        while (w < 90) {
+            val h = max(8, (w / aspect).roundToInt())
             val m = makeMask(shape, w, h)
             var n = 0
             for (b in m) if (b) n++
             if (n >= needed) return Pair(w, h)
-            w++
+            w += if (n < needed * 0.8) 3 else 1
         }
-        return Pair(70, max(6, (70 / aspect).roundToInt()))
+        return Pair(90, max(8, (90 / aspect).roundToInt()))
     }
 
     /** aspect = board width / board height of the play area, so the grid fills the screen.
@@ -157,19 +263,19 @@ object LevelGen {
         val shape = shapeFor(level)
         val tier = tierFor(level)
         val target = arrowTarget(level)
-        val avg = SHORT_FRAC * 2.5f + (1f - SHORT_FRAC) * (tier.longMin + tier.longMax) / 2f * 0.8f
-        val size = sizeFor(shape, aspect, (target * avg).toInt())
-        val w = size.first
-        val h = size.second
-        val mask = makeMask(shape, w, h)
         val rnd = Random(System.nanoTime())
         val deadline = System.nanoTime() + 2_500_000_000L
 
+        var avg = (tier.longMin + tier.longMax) / 2f * 0.85f
         var scale = 1f
         var best: Level? = null
         var bestDiff = Int.MAX_VALUE
         // Every attempt is solvable (checked while building); we retry only to land near the arrow target.
         for (attempt in 0 until 5) {
+            val size = sizeFor(shape, aspect, (target * avg * 1.05f).toInt())
+            val w = size.first
+            val h = size.second
+            val mask = makeMask(shape, w, h)
             val g = Gen(w, h, rnd, tier.straight)
             g.build(mask, tier.longMin, tier.longMax, tier.keepFree, scale)
             if (optimize) g.optimize(tier.keepFree, deadline)
@@ -179,8 +285,11 @@ object LevelGen {
                 bestDiff = diff
                 best = Level(w, h, mask, shape, list)
             }
-            if (diff <= target * 0.06) break
+            if (diff <= target * 0.08) break
             if (System.nanoTime() > deadline) break
+            var cells = 0
+            for (a in list) cells += a.cells.size
+            if (list.isNotEmpty()) avg = cells.toFloat() / list.size
             scale = (scale * list.size / target).coerceIn(0.5f, 2f)
         }
         return checkNotNull(best)
@@ -202,10 +311,10 @@ object LevelGen {
         val h = 4
         val mask = BooleanArray(w * h) { true }
         val list = listOf(
-            Arrow(0, listOf(Cell(0, 0), Cell(1, 0))),
-            Arrow(1, listOf(Cell(0, 2), Cell(1, 2)))
+            Arrow(0, listOf(Cell(0, 0), Cell(1, 0), Cell(2, 0), Cell(3, 0))),
+            Arrow(1, listOf(Cell(0, 2), Cell(1, 2), Cell(2, 2), Cell(3, 2)))
         )
-        return Level(w, h, mask, ShapeType.RECT, list)
+        return Level(w, h, mask, ShapeType.SQUARE, list)
     }
 }
 
@@ -356,19 +465,15 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float) 
         if (!free[b]) return null
         val cells = growFrom(mutableListOf(c, b), target)
         val q = cells.reversed()
-        if (q.size < 2) return null
+        if (q.size < MIN_LEN) return null
         if (!rayFree(q, occ)) return null
         if (freeAhead(q, free) < 1) return null
         return q
     }
 
     private fun pickLen(longMin: Int, longMax: Int, scale: Float): Int {
-        return if (rnd.nextFloat() < SHORT_FRAC) {
-            2 + rnd.nextInt(2)
-        } else {
-            val t = ((longMin + rnd.nextInt(longMax - longMin + 1)) * scale).roundToInt()
-            max(4, t)
-        }
+        val t = ((longMin + rnd.nextInt(longMax - longMin + 1)) * scale).roundToInt()
+        return max(MIN_LEN, t)
     }
 
     fun build(mask: BooleanArray, longMin: Int, longMax: Int, keep: Int, scale: Float) {
@@ -429,7 +534,7 @@ private class Gen(val w: Int, val h: Int, val rnd: Random, val straight: Float) 
                     }
                     if (cand == null) {
                         val p = growFrom(mutableListOf(c), t)
-                        if (p.size >= 2) {
+                        if (p.size >= MIN_LEN) {
                             val rev = p.reversed()
                             val pair = if (freeAhead(p, free) >= freeAhead(rev, free)) listOf(p, rev) else listOf(rev, p)
                             for (q in pair) {

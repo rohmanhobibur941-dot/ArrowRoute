@@ -1,5 +1,6 @@
 package com.jubahir.arrowroute
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -38,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,8 +78,6 @@ fun AppRoot(ads: AdManager) {
         GameState(prefs, (cfg.screenWidthDp / boardH).coerceIn(0.45f, 1.0f))
     }
     var screen by remember { mutableStateOf(Screen.SPLASH) }
-
-    BackHandler(enabled = screen == Screen.GAME) { screen = Screen.HOME }
 
     when (screen) {
         Screen.SPLASH -> SplashScreen { screen = Screen.HOME }
@@ -146,6 +147,19 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
     var showTheme by remember { mutableStateOf(false) }
     var showHow by remember { mutableStateOf(false) }
 
+    // back: the first press only shows a hint, the second press within 2 seconds closes the game
+    val ctx = LocalContext.current
+    var backOnce by remember { mutableStateOf(false) }
+    LaunchedEffect(backOnce) {
+        if (backOnce) {
+            delay(2000)
+            backOnce = false
+        }
+    }
+    BackHandler {
+        if (backOnce) (ctx as? Activity)?.finish() else backOnce = true
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val w = maxWidth
         val h = maxHeight
@@ -158,30 +172,6 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
         )
-
-        // coins (top right)
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = w * 0.06f)
-                .width(w * 0.2f)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.home_coin),
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth(),
-                contentScale = ContentScale.FillWidth
-            )
-            val txt = "${gs.coins}"
-            val digitH: Dp = when {
-                txt.length >= 6 -> 14.dp
-                txt.length == 5 -> 17.dp
-                txt.length == 4 -> 20.dp
-                else -> 22.dp
-            }
-            NumberImage(txt, DigitStyle.W, digitH, Modifier.align(BiasAlignment(0.3f, 0f)))
-        }
 
         // logo
         Image(
@@ -234,6 +224,20 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
             HomeImageButton(R.drawable.home_how, 1f, onClick = { showHow = true })
         }
 
+        if (backOnce) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0xCC1E1004))
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                LabelImage(R.drawable.lbl_press_back, 18.dp)
+            }
+        }
+
         // settings (bottom right)
         Box(
             Modifier
@@ -262,25 +266,38 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     var zoom by remember { mutableFloatStateOf(1f) }
     var showSettings by remember { mutableStateOf(false) }
     var showTheme by remember { mutableStateOf(false) }
-    var adMsg by remember { mutableStateOf(false) }
+    var confirmHome by remember { mutableStateOf(false) }
+    var confirmRestart by remember { mutableStateOf(false) }
+    // 0 = nothing, 1 = loading the ad, 2 = ad not available
+    var adMsg by remember { mutableIntStateOf(0) }
+
+    // back button / back gesture: ask before leaving the level
+    BackHandler { confirmHome = true }
 
     LaunchedEffect(gs.gen) { zoom = 1f }
     LaunchedEffect(adMsg) {
-        if (adMsg) {
+        if (adMsg == 2) {
             delay(1800)
-            adMsg = false
+            adMsg = 0
         }
     }
 
+    // If the ad is not loaded yet (slow internet) it is loaded now and shown when ready.
     fun watchAd(onReward: () -> Unit) {
-        ads.showRewarded(onReward) { adMsg = true }
+        ads.showRewarded(onReward, { adMsg = 2 }) { waiting ->
+            if (waiting) adMsg = 1 else if (adMsg == 1) adMsg = 0
+        }
+    }
+
+    fun onHintClick() {
+        if (gs.hints > 0) gs.hint(scope) else watchAd { gs.addHint() }
     }
 
     val cleared = gs.totalArrows - gs.arrows.size
     val fraction = cleared.toFloat() / gs.totalArrows.toFloat()
 
     Box(Modifier.fillMaxSize()) {
-        // wood background for the whole game screen
+        // wood background for the header and the bottom bar
         Image(
             painter = painterResource(R.drawable.bg_wood),
             contentDescription = null,
@@ -289,7 +306,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
         )
 
         Column(Modifier.fillMaxSize()) {
-            // header (square corners)
+            // header (square corners): home on the left, restart on the right
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -298,11 +315,9 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RoundIconButton(Ico.HOME, BtnStyle.GREEN, 44.dp) { onHome() }
-                    Spacer(Modifier.width(8.dp))
-                    RoundIconButton(Ico.RESTART, BtnStyle.GREEN, 44.dp) { gs.startLevel() }
+                    RoundIconButton(Ico.HOME, BtnStyle.GREEN, 44.dp) { confirmHome = true }
                     Spacer(Modifier.weight(1f))
-                    CoinPill(gs.coins)
+                    RoundIconButton(Ico.RESTART, BtnStyle.GREEN, 44.dp) { confirmRestart = true }
                 }
                 Spacer(Modifier.height(6.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -356,11 +371,26 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                 Spacer(Modifier.width(8.dp))
                 ZoomBar(zoom, { zoom = it }, Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                RoundIconButton(Ico.BULB, BtnStyle.GREEN, 46.dp) { gs.hint(scope) }
+                // hint button with the number of hints left (+ = watch an ad to get one)
+                Box {
+                    RoundIconButton(Ico.BULB, BtnStyle.GREEN, 46.dp) { onHintClick() }
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-4).dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFF7A1A))
+                            .border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        NumberImage(if (gs.hints > 0) "${gs.hints}" else "+", DigitStyle.W, 11.dp)
+                    }
+                }
             }
         }
 
-        if (adMsg) {
+        if (adMsg != 0) {
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -370,7 +400,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                     .background(Color(0xCC1E1004))
                     .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
-                LabelImage(R.drawable.lbl_ad_not_ready, 18.dp)
+                LabelImage(if (adMsg == 1) R.drawable.lbl_loading_ad else R.drawable.lbl_ad_not_ready, 18.dp)
             }
         }
     }
@@ -378,30 +408,33 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     if (showSettings) {
         SettingsDialog(prefs, { showSettings = false }) {
             showSettings = false
-            gs.startLevel()
+            confirmRestart = true
         }
     }
     if (showTheme) ThemeDialog(gs) { showTheme = false }
 
+    if (confirmHome) {
+        ConfirmDialog(R.drawable.lbl_leave_title, onYes = {
+            confirmHome = false
+            onHome()
+        }, onNo = { confirmHome = false })
+    }
+    if (confirmRestart) {
+        ConfirmDialog(R.drawable.lbl_restart_title, onYes = {
+            confirmRestart = false
+            gs.startLevel()
+        }, onNo = { confirmRestart = false })
+    }
+
     if (gs.status == Status.WON) {
         ResultDialog(true, gs.stars) {
-            GameIcon(Ico.COIN, 58.dp)
-            Spacer(Modifier.height(8.dp))
-            val shown = if (gs.doubled) gs.bonus * 2 else gs.bonus
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LabelImage(R.drawable.lbl_bonus, 26.dp)
-                Spacer(Modifier.width(6.dp))
-                NumberImage("+$shown", DigitStyle.G, 28.dp)
-                Spacer(Modifier.width(6.dp))
-                LabelImage(R.drawable.lbl_coins, 26.dp)
-            }
-            if (!gs.doubled) {
-                Spacer(Modifier.height(14.dp))
-                GlossyButton(R.drawable.lbl_2x_coins, BtnStyle.ORANGE, Modifier.fillMaxWidth(), 40.dp) {
-                    watchAd { gs.doubleBonus() }
+            Spacer(Modifier.height(4.dp))
+            if (!gs.hintClaimed) {
+                GlossyButton(R.drawable.lbl_get_hint, BtnStyle.ORANGE, Modifier.fillMaxWidth(), 40.dp) {
+                    watchAd { gs.claimWinHint() }
                 }
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(10.dp))
             GlossyButton(R.drawable.lbl_next_level, BtnStyle.GREEN, Modifier.fillMaxWidth(), 28.dp) {
                 val lv = gs.level
                 if (lv % 3 == 0) {
@@ -424,6 +457,19 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
             }
             Spacer(Modifier.height(10.dp))
             GlossyButton(R.drawable.lbl_try_again, BtnStyle.GREEN, Modifier.fillMaxWidth(), 28.dp) { gs.startLevel() }
+        }
+    }
+}
+
+/** "Are you sure?" panel used for going home and for restarting a level. */
+@Composable
+fun ConfirmDialog(title: Int, onYes: () -> Unit, onNo: () -> Unit) {
+    GamePanel(title, onClose = onNo, ribbon = BtnStyle.ORANGE) {
+        LabelImage(R.drawable.lbl_lose_progress, 40.dp)
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            GlossyButton(R.drawable.lbl_no, BtnStyle.ORANGE, Modifier.weight(1f), 26.dp) { onNo() }
+            GlossyButton(R.drawable.lbl_yes, BtnStyle.GREEN, Modifier.weight(1f), 26.dp) { onYes() }
         }
     }
 }

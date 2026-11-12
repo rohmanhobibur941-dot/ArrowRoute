@@ -33,10 +33,11 @@ class Prefs(ctx: Context) {
         lastCrash = text.take(3500)
     }
 
-    var coins: Int
-        get() = sp.getInt("coins", 0)
+    /** Hints left. Every player starts with 3 free hints. */
+    var hints: Int
+        get() = sp.getInt("hints", 3)
         set(v) {
-            sp.edit().putInt("coins", v).apply()
+            sp.edit().putInt("hints", v).apply()
         }
 
     var level: Int
@@ -105,13 +106,13 @@ class Ghost(val arrow: Arrow, val progress: Float)
 
 class GameState(private val prefs: Prefs, private val aspect: Float) {
     var level by mutableIntStateOf(prefs.level)
-    var coins by mutableIntStateOf(prefs.coins)
+    var hints by mutableIntStateOf(prefs.hints)
     var hearts by mutableIntStateOf(3)
     var w by mutableIntStateOf(1)
     var h by mutableIntStateOf(1)
     var arrows by mutableStateOf<List<Arrow>>(emptyList())
     var mask by mutableStateOf(BooleanArray(1))
-    var shape by mutableStateOf(ShapeType.RECT)
+    var shape by mutableStateOf(ShapeType.SQUARE)
     var totalArrows by mutableIntStateOf(1)
     val ghosts = mutableStateMapOf<Int, Ghost>()
     var blockedId by mutableIntStateOf(-1)
@@ -119,11 +120,11 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
     var status by mutableStateOf(Status.PLAYING)
     var gen by mutableIntStateOf(0)
     var theme by mutableIntStateOf(prefs.theme)
-    var bonus by mutableIntStateOf(0)
-    var doubled by mutableStateOf(false)
+    var hintClaimed by mutableStateOf(false)
     var reviveUsed by mutableStateOf(false)
     var stars by mutableIntStateOf(0)
-    private var cleared = 0
+    // arrows that already cost a heart in this level: tapping the same blocked arrow again is free
+    private val penalized = HashSet<Int>()
 
     // The level currently being played (kept so restart / try again replays the same puzzle).
     private var current: Level? = null
@@ -181,10 +182,10 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         ghosts.clear()
         blockedId = -1
         hintId = -1
-        doubled = false
+        hintClaimed = false
         reviveUsed = false
         stars = 0
-        cleared = 0
+        penalized.clear()
         gen++
     }
 
@@ -197,12 +198,17 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         prefetchNext()
     }
 
-    /** Rewarded ad finished after a win: give the level bonus a second time (2x). */
-    fun doubleBonus() {
-        if (doubled || status != Status.WON) return
-        doubled = true
-        coins += bonus
-        prefs.coins = coins
+    /** One more hint (rewarded ad, or the win reward). */
+    fun addHint() {
+        hints += 1
+        prefs.hints = hints
+    }
+
+    /** Rewarded ad finished after a win: the player gets 1 hint. Only once per level. */
+    fun claimWinHint() {
+        if (hintClaimed || status != Status.WON) return
+        hintClaimed = true
+        addHint()
     }
 
     /** Rewarded ad finished after a loss: continue the level with one extra life. */
@@ -229,12 +235,6 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         val occ = LevelGen.occupancy(arrows, w)
         if (LevelGen.canExit(a, w, h, occ)) {
             arrows = arrows.filter { it.id != a.id }
-            // only 1 coin for every 5 arrows cleared (arrow counts are big now)
-            cleared += 1
-            if (cleared % 5 == 0) {
-                coins += 1
-                prefs.coins = coins
-            }
             fx.pop()
             val g = gen
             val len = a.cells.size
@@ -249,14 +249,12 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
             if (arrows.isEmpty()) {
                 // 3 hearts left = 3 stars, 2 hearts = 2 stars, 1 heart = 1 star
                 stars = hearts.coerceIn(1, 3)
-                bonus = (5 + level / 2).coerceAtMost(30) + stars * 2
-                coins += bonus
-                prefs.coins = coins
                 status = Status.WON
                 fx.win()
             }
         } else {
-            hearts -= 1
+            // one heart per arrow: tapping the same blocked arrow again does not cost another one
+            if (penalized.add(a.id)) hearts -= 1
             fx.error()
             blockedId = a.id
             scope.launch {
@@ -267,10 +265,13 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         }
     }
 
+    /** Uses one hint (if any is left) and highlights an arrow that can leave right now. */
     fun hint(scope: CoroutineScope) {
-        if (status != Status.PLAYING) return
+        if (status != Status.PLAYING || hints <= 0) return
         val occ = LevelGen.occupancy(arrows, w)
         val a = arrows.firstOrNull { LevelGen.canExit(it, w, h, occ) } ?: return
+        hints -= 1
+        prefs.hints = hints
         hintId = a.id
         scope.launch {
             delay(1500)

@@ -49,9 +49,8 @@ object Themes {
     val HINT = Color(0xFF2ECC71)
 
     fun boardBg(t: Int): Color = when (t) {
-        CLASSIC -> Color(0xFFF1E4C3)
         NEON -> Color(0xFF141B2B)
-        else -> Color(0xFFEAF3FF)
+        else -> Color(0xFFE9DBBE)   // cream, sampled from the reference image
     }
 
     fun tileColor(t: Int): Color = when (t) {
@@ -62,9 +61,8 @@ object Themes {
 
     // dots sit directly on the wood background, so they are light
     fun dotColor(t: Int): Color = when (t) {
-        CLASSIC -> Color(0xA0FFF1D0)
-        NEON -> Color(0x99FFFFFF)
-        else -> Color(0xA8FFF6E0)
+        NEON -> Color(0x88FFFFFF)
+        else -> Color(0x8C6B5232)
     }
 
     fun arrowColor(t: Int, id: Int): Color = when (t) {
@@ -256,6 +254,7 @@ fun GameBoard(gs: GameState, zoom: Float, onZoom: (Float) -> Unit, fx: Fx, modif
     Canvas(
         modifier
             .clipToBounds()
+            .background(Themes.boardBg(theme))
             .onSizeChanged { boardSize = it.toSize() }
             .pointerInput(gs.gen) {
                 detectTapGestures { p ->
