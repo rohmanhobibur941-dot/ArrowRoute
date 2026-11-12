@@ -9,7 +9,7 @@ import com.unity3d.ads.UnityAdsShowOptions
 
 /**
  * Unity Ads settings.
- * TEST_MODE = true shows Unity test ads only. Set it to false before publishing the game.
+ * TEST_MODE = false serves real ads. Set it to true only while testing, so you never click your own live ads.
  */
 object AdIds {
     const val GAME_ID = "800005010"
@@ -19,7 +19,7 @@ object AdIds {
     /** Not used: the game has no banner ads. Kept so the placement name is not forgotten. */
     const val BANNER = "Banner_Android"
 
-    const val TEST_MODE = true
+    const val TEST_MODE = false
 }
 
 class AdManager(private val activity: Activity) {
