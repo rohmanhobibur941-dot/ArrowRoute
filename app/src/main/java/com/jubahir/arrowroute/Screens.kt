@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
+import kotlin.math.min
 
 enum class Screen { SPLASH, HOME, GAME }
 
@@ -143,77 +146,103 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
     var showTheme by remember { mutableStateOf(false) }
     var showHow by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val w = maxWidth
+        val h = maxHeight
+        // positions come from the reference design (1449 x 2576); k shrinks things on shorter screens
+        val k = min(1f, (h / w) / (2576f / 1449f))
+
         Image(
-            painter = painterResource(R.drawable.bg_forest),
+            painter = painterResource(R.drawable.bg_home),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
         )
-        Column(
+
+        // coins (top right)
+        Box(
             Modifier
-                .fillMaxSize()
+                .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(top = 8.dp, end = w * 0.06f)
+                .width(w * 0.2f)
         ) {
-            // coins (top right)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Box(Modifier.fillMaxWidth(0.34f)) {
-                    Image(
-                        painter = painterResource(R.drawable.home_coin),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.FillWidth
-                    )
-                    val txt = "${gs.coins}"
-                    val digitH: Dp = when {
-                        txt.length >= 6 -> 15.dp
-                        txt.length == 5 -> 18.dp
-                        txt.length == 4 -> 21.dp
-                        else -> 23.dp
-                    }
-                    NumberImage(
-                        txt,
-                        DigitStyle.W,
-                        digitH,
-                        Modifier.align(BiasAlignment(0.3f, 0f))
-                    )
-                }
-            }
-
-            Spacer(Modifier.weight(0.12f))
-
             Image(
-                painter = painterResource(R.drawable.home_logo),
+                painter = painterResource(R.drawable.home_coin),
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth(0.84f),
+                modifier = Modifier.fillMaxWidth(),
                 contentScale = ContentScale.FillWidth
             )
-
-            Spacer(Modifier.weight(1f))
-
-            HomeImageButton(R.drawable.home_play, 0.74f, pulse = true, onClick = onPlay) {
-                Row(
-                    Modifier.align(BiasAlignment(0f, -0.08f)),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LabelImage(R.drawable.lbl_play_level, 26.dp)
-                    Spacer(Modifier.width(8.dp))
-                    NumberImage("${gs.level}", DigitStyle.P, 26.dp)
-                }
+            val txt = "${gs.coins}"
+            val digitH: Dp = when {
+                txt.length >= 6 -> 14.dp
+                txt.length == 5 -> 17.dp
+                txt.length == 4 -> 20.dp
+                else -> 22.dp
             }
-            Spacer(Modifier.height(14.dp))
-            HomeImageButton(R.drawable.home_theme, 0.66f, onClick = { showTheme = true })
-            Spacer(Modifier.height(14.dp))
-            HomeImageButton(R.drawable.home_how, 0.66f, onClick = { showHow = true })
+            NumberImage(txt, DigitStyle.W, digitH, Modifier.align(BiasAlignment(0.3f, 0f)))
+        }
 
-            Spacer(Modifier.weight(0.5f))
+        // logo
+        Image(
+            painter = painterResource(R.drawable.home_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = h * 0.138f)
+                .width(w * 0.62f * k),
+            contentScale = ContentScale.FillWidth
+        )
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                HomeImageButton(R.drawable.home_gear, 0.2f, onClick = { showSettings = true })
-            }
+        // big play button
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = h * 0.378f)
+                .width(w * 0.34f * k)
+        ) {
+            HomeImageButton(R.drawable.home_play, 1f, pulse = true, onClick = onPlay)
+        }
+
+        // current level, small, under the play button
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = h * 0.566f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LabelImage(R.drawable.lbl_level, 16.dp)
+            Spacer(Modifier.width(6.dp))
+            NumberImage("${gs.level}", DigitStyle.W, 18.dp)
+        }
+
+        // theme + how to play
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = h * 0.592f)
+                .width(w * 0.53f * k)
+        ) {
+            HomeImageButton(R.drawable.home_theme, 1f, onClick = { showTheme = true })
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = h * 0.706f)
+                .width(w * 0.61f * k)
+        ) {
+            HomeImageButton(R.drawable.home_how, 1f, onClick = { showHow = true })
+        }
+
+        // settings (bottom right)
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset(y = h * 0.90f)
+                .padding(end = w * 0.083f)
+                .width(w * 0.125f)
+        ) {
+            HomeImageButton(R.drawable.home_gear, 1f, onClick = { showSettings = true })
         }
     }
 

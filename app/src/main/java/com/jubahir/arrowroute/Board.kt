@@ -60,10 +60,11 @@ object Themes {
         else -> Color(0xFFFFFFFF)
     }
 
+    // dots sit directly on the wood background, so they are light
     fun dotColor(t: Int): Color = when (t) {
-        CLASSIC -> Color(0xFFB9A57C)
-        NEON -> Color(0x66FFFFFF)
-        else -> Color(0xFFC3D3EA)
+        CLASSIC -> Color(0xA0FFF1D0)
+        NEON -> Color(0x99FFFFFF)
+        else -> Color(0xA8FFF6E0)
     }
 
     fun arrowColor(t: Int, id: Int): Color = when (t) {
@@ -288,19 +289,14 @@ fun GameBoard(gs: GameState, zoom: Float, onZoom: (Float) -> Unit, fx: Fx, modif
         val tile = Themes.tileColor(theme)
         val dot = Themes.dotColor(theme)
         val pad = lay.cell * 0.03f
-        val r = max(1.5f, lay.cell * 0.04f)
+        val r = max(2f, lay.cell * 0.07f)
         if (maskOk) {
             for (yy in 0 until gs.h) {
                 for (xx in 0 until gs.w) {
                     if (!mask[yy * gs.w + xx]) continue
                     val cx = lay.ox + xx * lay.cell
                     val cy = lay.oy + yy * lay.cell
-                    drawRoundRect(
-                        tile,
-                        topLeft = Offset(cx - lay.cell / 2f + pad, cy - lay.cell / 2f + pad),
-                        size = Size(lay.cell - 2f * pad, lay.cell - 2f * pad),
-                        cornerRadius = CornerRadius(lay.cell * 0.2f)
-                    )
+                    // no tile behind the arrows any more, only the dot of every grid point
                     drawCircle(dot, r, Offset(cx, cy))
                 }
             }

@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,7 +31,6 @@ class MainActivity : ComponentActivity() {
             previous?.uncaughtException(t, e)
         }
 
-        MobileAds.initialize(this)
         val ads = AdManager(this)
         ads.loadAll()
         setContent {
