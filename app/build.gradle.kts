@@ -11,13 +11,29 @@ android {
         applicationId = "com.jubahir.arrowroute"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        // every GitHub build gets a higher versionCode, so a new APK installs over the old one
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "1.0"
+    }
+
+    // Release signing: the keystore comes from environment variables (set by the GitHub workflow).
+    // The same keystore must be used for every release, otherwise updates cannot be installed.
+    val keystorePath = System.getenv("KEYSTORE_FILE")
+    signingConfigs {
+        if (keystorePath != null && file(keystorePath).exists()) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
