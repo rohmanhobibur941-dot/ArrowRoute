@@ -107,6 +107,9 @@ class Ghost(val arrow: Arrow, val progress: Float)
 class GameState(private val prefs: Prefs, private val aspect: Float) {
     var level by mutableIntStateOf(prefs.level)
     var hints by mutableIntStateOf(prefs.hints)
+
+    /** 0 easy, 1 medium, 2 hard, 3 extreme (from the level number). */
+    val difficulty: Int get() = LevelGen.difficultyOf(level)
     var hearts by mutableIntStateOf(3)
     var w by mutableIntStateOf(1)
     var h by mutableIntStateOf(1)

@@ -57,21 +57,29 @@ private const val MIN_LEN = 4
 object LevelGen {
 
     /**
-     * Arrow count per level: level 1 = 80, level 2 = 100, level 3 = 120 ... (+20 per level).
+     * Arrow count per level: level 1 = 60, level 2 = 72, level 3 = 84 ... (+12 per level).
      * From level 4 a small deterministic +-8% wobble is added. Capped for very late levels.
      */
     fun arrowTarget(level: Int): Int {
-        val base = 80 + 20 * (level - 1)
+        val base = 60 + 12 * (level - 1)
         val wobble = if (level <= 3) 0.0 else ((level * 7919) % 17 - 8) / 100.0
-        return (base * (1.0 + wobble)).toInt().coerceIn(80, 400)
+        return (base * (1.0 + wobble)).toInt().coerceIn(60, 320)
+    }
+
+    /** 0 = easy (levels 1-10), 1 = medium (11-25), 2 = hard (26-50), 3 = extreme (51+). */
+    fun difficultyOf(level: Int): Int = when {
+        level <= 10 -> 0
+        level <= 25 -> 1
+        level <= 50 -> 2
+        else -> 3
     }
 
     /** Easy -> Medium -> Hard -> Extreme: longer arrows and fewer free arrows at the start. */
-    private fun tierFor(level: Int): Tier = when {
-        level <= 4 -> Tier(4, 8, 4, 0.55f)
-        level <= 9 -> Tier(5, 10, 4, 0.45f)
-        level <= 19 -> Tier(6, 12, 3, 0.40f)
-        else -> Tier(7, 14, 3, 0.35f)
+    private fun tierFor(level: Int): Tier = when (difficultyOf(level)) {
+        0 -> Tier(4, 7, 8, 0.60f)
+        1 -> Tier(4, 9, 6, 0.50f)
+        2 -> Tier(5, 11, 5, 0.45f)
+        else -> Tier(6, 13, 4, 0.40f)
     }
 
     fun shapeFor(level: Int): ShapeType {

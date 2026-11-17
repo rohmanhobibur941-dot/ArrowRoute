@@ -257,8 +257,55 @@ fun HomeScreen(gs: GameState, prefs: Prefs, onPlay: () -> Unit) {
 
 // ------------------------------------------------------------------ game screen
 
-private val BAR_DARK = Color(0xE61E1004)
-private val EDGE_LINE = Color(0xFF8A5A2B)
+/** Game screen look per theme: background, header, bottom bar and accent colours. */
+private class UiPalette(
+    val bgRes: Int?,
+    val bgBrush: Brush?,
+    val headTop: Color,
+    val headBottom: Color,
+    val bar: Color,
+    val edge: Color,
+    val chip: Color,
+    val zoomBg: Color
+)
+
+private fun uiPalette(theme: Int): UiPalette = when (theme) {
+    Themes.NEON -> UiPalette(
+        bgRes = null,
+        bgBrush = Brush.verticalGradient(listOf(Color(0xFF070B16), Color(0xFF111A30))),
+        headTop = Color(0xF00A1020), headBottom = Color(0xE6101A34),
+        bar = Color(0xF00A1020), edge = Color(0xFF00E5FF),
+        chip = Color(0x6600E5FF), zoomBg = Color(0xFF16213C)
+    )
+    Themes.CANDY -> UiPalette(
+        bgRes = R.drawable.bg_home,
+        bgBrush = null,
+        headTop = Color(0xF03A1AA8), headBottom = Color(0xB36A2FD8),
+        bar = Color(0xF03A1AA8), edge = Color(0xFFFF7BD5),
+        chip = Color(0x66FFFFFF), zoomBg = Color(0xFF4A24B8)
+    )
+    else -> UiPalette(
+        bgRes = R.drawable.bg_wood,
+        bgBrush = null,
+        headTop = Color(0xF01E1004), headBottom = Color(0xB32B1808),
+        bar = Color(0xE61E1004), edge = Color(0xFF8A5A2B),
+        chip = Color(0x66000000), zoomBg = Color(0xFF3A230F)
+    )
+}
+
+private fun difficultyColor(d: Int): Color = when (d) {
+    0 -> Color(0xFF3FBF2C)
+    1 -> Color(0xFFF2B01E)
+    2 -> Color(0xFFFF7A1A)
+    else -> Color(0xFFE9453A)
+}
+
+private fun difficultyLabel(d: Int): Int = when (d) {
+    0 -> R.drawable.lbl_easy
+    1 -> R.drawable.lbl_medium
+    2 -> R.drawable.lbl_hard
+    else -> R.drawable.lbl_extreme
+}
 
 @Composable
 fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -> Unit) {
@@ -296,34 +343,71 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     val cleared = gs.totalArrows - gs.arrows.size
     val fraction = cleared.toFloat() / gs.totalArrows.toFloat()
 
+    val ui = uiPalette(gs.theme)
+
     Box(Modifier.fillMaxSize()) {
-        // wood background for the header and the bottom bar
-        Image(
-            painter = painterResource(R.drawable.bg_wood),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        // background for the header and the bottom bar: wood, dark neon or candy purple
+        if (ui.bgRes != null) {
+            Image(
+                painter = painterResource(ui.bgRes),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else if (ui.bgBrush != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(ui.bgBrush)
+            )
+        }
 
         Column(Modifier.fillMaxSize()) {
-            // header (square corners): home on the left, restart on the right
+            // header (square corners): home | level + difficulty | restart, then arrows + hearts
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color(0xF01E1004), Color(0xB32B1808))))
+                    .background(Brush.verticalGradient(listOf(ui.headTop, ui.headBottom)))
                     .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RoundIconButton(Ico.HOME, BtnStyle.GREEN, 44.dp) { confirmHome = true }
                     Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LabelImage(R.drawable.lbl_level, 22.dp)
+                            Spacer(Modifier.width(8.dp))
+                            NumberImage("${gs.level}", DigitStyle.W, 24.dp)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(difficultyColor(gs.difficulty))
+                                .border(1.5.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(50))
+                                .padding(horizontal = 14.dp, vertical = 3.dp)
+                        ) {
+                            LabelImage(difficultyLabel(gs.difficulty), 14.dp)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
                     RoundIconButton(Ico.RESTART, BtnStyle.GREEN, 44.dp) { confirmRestart = true }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    LabelImage(R.drawable.lbl_level, 22.dp)
-                    Spacer(Modifier.width(8.dp))
-                    NumberImage("${gs.level}", DigitStyle.W, 24.dp)
+                    // arrows left / arrows in this level
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(ui.chip)
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LabelImage(R.drawable.lbl_arrows, 16.dp)
+                        Spacer(Modifier.width(8.dp))
+                        NumberImage("${gs.arrows.size}/${gs.totalArrows}", DigitStyle.W, 18.dp)
+                    }
                     Spacer(Modifier.weight(1f))
                     for (i in 1..3) {
                         GameIcon(if (i <= gs.hearts) Ico.HEART else Ico.HEART_OFF, 26.dp)
@@ -337,7 +421,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                 Modifier
                     .fillMaxWidth()
                     .height(3.dp)
-                    .background(EDGE_LINE)
+                    .background(ui.edge)
             )
 
             GameBoard(
@@ -354,13 +438,13 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                 Modifier
                     .fillMaxWidth()
                     .height(3.dp)
-                    .background(EDGE_LINE)
+                    .background(ui.edge)
             )
             // bottom bar (square corners, no banner ad under it)
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(BAR_DARK)
+                    .background(ui.bar)
                     .navigationBarsPadding()
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -369,7 +453,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                 Spacer(Modifier.width(8.dp))
                 RoundIconButton(Ico.GEAR, BtnStyle.ORANGE, 46.dp) { showSettings = true }
                 Spacer(Modifier.width(8.dp))
-                ZoomBar(zoom, { zoom = it }, Modifier.weight(1f))
+                ZoomBar(zoom, { zoom = it }, Modifier.weight(1f), ui.zoomBg)
                 Spacer(Modifier.width(8.dp))
                 // hint button with the number of hints left (+ = watch an ad to get one)
                 Box {
@@ -492,11 +576,11 @@ private fun ZoomSign(plus: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ZoomBar(zoom: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier) {
+fun ZoomBar(zoom: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier, bg: Color = Color(0xFF3A230F)) {
     Row(
         modifier
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF3A230F))
+            .background(bg)
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -12,6 +12,11 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.ArrowRoute">
 
+        <!-- AdMob application id -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-5693977305113658~2949594287" />
+
 
         <activity
             android:name=".MainActivity"

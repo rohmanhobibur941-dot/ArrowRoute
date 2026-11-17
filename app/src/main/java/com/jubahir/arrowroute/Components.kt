@@ -224,20 +224,22 @@ fun GameIcon(kind: Ico, sizeDp: Dp, modifier: Modifier = Modifier, tint: Color =
 // ------------------------------------------------------------------ image text (no app fonts)
 
 /** Number sprites, one set per colour style. All pre-rendered PNGs, no system font involved. */
-enum class DigitStyle(val ids: IntArray, val plus: Int) {
+enum class DigitStyle(val ids: IntArray, val plus: Int, val slash: Int) {
     W(
         intArrayOf(
             R.drawable.dw_0, R.drawable.dw_1, R.drawable.dw_2, R.drawable.dw_3, R.drawable.dw_4,
             R.drawable.dw_5, R.drawable.dw_6, R.drawable.dw_7, R.drawable.dw_8, R.drawable.dw_9
         ),
-        R.drawable.dw_plus
+        R.drawable.dw_plus,
+        R.drawable.dw_slash
     ),
     P(
         intArrayOf(
             R.drawable.dp_0, R.drawable.dp_1, R.drawable.dp_2, R.drawable.dp_3, R.drawable.dp_4,
             R.drawable.dp_5, R.drawable.dp_6, R.drawable.dp_7, R.drawable.dp_8, R.drawable.dp_9
         ),
-        R.drawable.dp_plus
+        R.drawable.dp_plus,
+        R.drawable.dp_slash
     )
 }
 
@@ -248,6 +250,7 @@ fun NumberImage(text: String, style: DigitStyle, height: Dp, modifier: Modifier 
             val res = when {
                 ch in '0'..'9' -> style.ids[ch - '0']
                 ch == '+' -> style.plus
+                ch == '/' -> style.slash
                 else -> 0
             }
             if (res != 0) {

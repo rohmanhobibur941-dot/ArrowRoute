@@ -3,25 +3,28 @@ package com.jubahir.arrowroute
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
-import com.unity3d.ads.IUnityAdsInitializationListener
-import com.unity3d.ads.IUnityAdsLoadListener
-import com.unity3d.ads.IUnityAdsShowListener
-import com.unity3d.ads.UnityAds
-import com.unity3d.ads.UnityAdsShowOptions
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
 /**
- * Unity Ads settings.
- * TEST_MODE = false serves real ads. Set it to true only while testing, so you never click your own live ads.
+ * AdMob settings (real ads).
+ * To test on your own phone without risking your AdMob account, put your phone's test device id
+ * (AdMob prints "Use RequestConfiguration...setTestDeviceIds" with it in logcat) into TEST_DEVICE_IDS.
+ * Never click your own live ads.
  */
 object AdIds {
-    const val GAME_ID = "800005010"
-    const val REWARDED = "Rewarded_Android"
-    const val INTERSTITIAL = "Interstitial_Android"
+    const val INTERSTITIAL = "ca-app-pub-5693977305113658/8949463213"
+    const val REWARDED = "ca-app-pub-5693977305113658/5380260008"
 
-    /** Not used: the game has no banner ads. Kept so the placement name is not forgotten. */
-    const val BANNER = "Banner_Android"
-
-    const val TEST_MODE = false
+    val TEST_DEVICE_IDS: List<String> = emptyList()
 
     /** How long a tapped ad button waits for the ad to load (slow internet) before giving up. */
     const val WAIT_MS = 10_000L
@@ -30,9 +33,9 @@ object AdIds {
 class AdManager(private val activity: Activity) {
     private var initStarted = false
     private var ready = false
-    private var rewardedReady = false
+    private var rewarded: RewardedAd? = null
+    private var interstitial: InterstitialAd? = null
     private var rewardedLoading = false
-    private var interstitialReady = false
     private var interstitialLoading = false
 
     // A rewarded ad was requested while it was not loaded yet (e.g. slow internet): it is loaded now
@@ -43,7 +46,7 @@ class AdManager(private val activity: Activity) {
     private val handler = Handler(Looper.getMainLooper())
     private val timeout = Runnable { finishPending(false) }
 
-    /** Initialises Unity Ads (once) and then preloads the rewarded and interstitial placements. */
+    /** Initialises AdMob (once) and then preloads the rewarded and interstitial ads. */
     fun loadAll() {
         if (ready) {
             loadRewarded()
@@ -52,51 +55,42 @@ class AdManager(private val activity: Activity) {
         }
         if (initStarted) return
         initStarted = true
-        UnityAds.initialize(
-            activity.applicationContext,
-            AdIds.GAME_ID,
-            AdIds.TEST_MODE,
-            object : IUnityAdsInitializationListener {
-                override fun onInitializationComplete() {
-                    activity.runOnUiThread {
-                        ready = true
-                        loadRewarded()
-                        loadInterstitial()
-                    }
-                }
-
-                override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
-                    activity.runOnUiThread {
-                        initStarted = false
-                        finishPending(false)
-                    }
-                }
+        if (AdIds.TEST_DEVICE_IDS.isNotEmpty()) {
+            MobileAds.setRequestConfiguration(
+                RequestConfiguration.Builder().setTestDeviceIds(AdIds.TEST_DEVICE_IDS).build()
+            )
+        }
+        MobileAds.initialize(activity) {
+            activity.runOnUiThread {
+                ready = true
+                loadRewarded()
+                loadInterstitial()
             }
-        )
+        }
     }
 
     fun loadRewarded() {
-        if (!ready || rewardedReady || rewardedLoading) return
+        if (!ready || rewarded != null || rewardedLoading) return
         rewardedLoading = true
-        UnityAds.load(AdIds.REWARDED, object : IUnityAdsLoadListener {
-            override fun onUnityAdsAdLoaded(placementId: String?) {
+        RewardedAd.load(activity, AdIds.REWARDED, AdRequest.Builder().build(), object : RewardedAdLoadCallback() {
+            override fun onAdLoaded(ad: RewardedAd) {
                 activity.runOnUiThread {
-                    rewardedReady = true
+                    rewarded = ad
                     rewardedLoading = false
-                    if (pendingReward != null) {
-                        val r = pendingReward
-                        val u = pendingUnavailable
-                        val w = pendingWait
+                    val r = pendingReward
+                    val u = pendingUnavailable
+                    val w = pendingWait
+                    if (r != null && u != null) {
                         clearPending()
                         w?.invoke(false)
-                        if (r != null && u != null) showRewarded(r, u)
+                        showRewarded(r, u)
                     }
                 }
             }
 
-            override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+            override fun onAdFailedToLoad(error: LoadAdError) {
                 activity.runOnUiThread {
-                    rewardedReady = false
+                    rewarded = null
                     rewardedLoading = false
                     finishPending(false)
                 }
@@ -105,19 +99,19 @@ class AdManager(private val activity: Activity) {
     }
 
     fun loadInterstitial() {
-        if (!ready || interstitialReady || interstitialLoading) return
+        if (!ready || interstitial != null || interstitialLoading) return
         interstitialLoading = true
-        UnityAds.load(AdIds.INTERSTITIAL, object : IUnityAdsLoadListener {
-            override fun onUnityAdsAdLoaded(placementId: String?) {
+        InterstitialAd.load(activity, AdIds.INTERSTITIAL, AdRequest.Builder().build(), object : InterstitialAdLoadCallback() {
+            override fun onAdLoaded(ad: InterstitialAd) {
                 activity.runOnUiThread {
-                    interstitialReady = true
+                    interstitial = ad
                     interstitialLoading = false
                 }
             }
 
-            override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+            override fun onAdFailedToLoad(error: LoadAdError) {
                 activity.runOnUiThread {
-                    interstitialReady = false
+                    interstitial = null
                     interstitialLoading = false
                 }
             }
@@ -131,7 +125,7 @@ class AdManager(private val activity: Activity) {
         pendingWait = null
     }
 
-    /** Ends a waiting request: loaded = false means it timed out or the load failed. */
+    /** Ends a waiting request because it timed out or the load failed. */
     private fun finishPending(loaded: Boolean) {
         val u = pendingUnavailable
         val w = pendingWait
@@ -148,7 +142,8 @@ class AdManager(private val activity: Activity) {
      * onWait(true) is called while waiting and onWait(false) when the wait is over.
      */
     fun showRewarded(onReward: () -> Unit, onUnavailable: () -> Unit, onWait: (Boolean) -> Unit = {}) {
-        if (!ready || !rewardedReady) {
+        val ad = rewarded
+        if (!ready || ad == null) {
             if (pendingReward != null) return   // already waiting for one
             pendingReward = onReward
             pendingUnavailable = onUnavailable
@@ -158,54 +153,42 @@ class AdManager(private val activity: Activity) {
             if (!ready) loadAll() else loadRewarded()
             return
         }
-        rewardedReady = false
-        UnityAds.show(activity, AdIds.REWARDED, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-            override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
-                activity.runOnUiThread {
-                    loadRewarded()
-                    onUnavailable()
-                }
+        rewarded = null
+        var earned = false
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdDismissedFullScreenContent() {
+                loadRewarded()
+                if (earned) onReward()
             }
 
-            override fun onUnityAdsShowStart(placementId: String?) {}
-
-            override fun onUnityAdsShowClick(placementId: String?) {}
-
-            override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) {
-                activity.runOnUiThread {
-                    loadRewarded()
-                    if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) onReward()
-                }
+            override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                loadRewarded()
+                onUnavailable()
             }
-        })
+        }
+        ad.show(activity) { earned = true }
     }
 
     /** Shows an interstitial if one is ready, then always calls onDone. */
     fun showInterstitial(onDone: () -> Unit) {
-        if (!ready || !interstitialReady) {
+        val ad = interstitial
+        if (!ready || ad == null) {
             loadAll()
             onDone()
             return
         }
-        interstitialReady = false
-        UnityAds.show(activity, AdIds.INTERSTITIAL, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-            override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
-                activity.runOnUiThread {
-                    loadInterstitial()
-                    onDone()
-                }
+        interstitial = null
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdDismissedFullScreenContent() {
+                loadInterstitial()
+                onDone()
             }
 
-            override fun onUnityAdsShowStart(placementId: String?) {}
-
-            override fun onUnityAdsShowClick(placementId: String?) {}
-
-            override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) {
-                activity.runOnUiThread {
-                    loadInterstitial()
-                    onDone()
-                }
+            override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                loadInterstitial()
+                onDone()
             }
-        })
+        }
+        ad.show(activity)
     }
 }
