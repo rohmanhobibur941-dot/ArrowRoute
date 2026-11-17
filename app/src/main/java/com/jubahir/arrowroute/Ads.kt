@@ -3,6 +3,9 @@ package com.jubahir.arrowroute
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.FullScreenContentCallback
@@ -31,6 +34,11 @@ object AdIds {
 }
 
 class AdManager(private val activity: Activity) {
+    /** True while a full-screen ad is open; the app covers itself with black so no app UI peeks out
+     *  behind the ad's status bar area. */
+    var adShowing by mutableStateOf(false)
+        private set
+
     private var initStarted = false
     private var ready = false
     private var rewarded: RewardedAd? = null
@@ -157,15 +165,18 @@ class AdManager(private val activity: Activity) {
         var earned = false
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
+                adShowing = false
                 loadRewarded()
                 if (earned) onReward()
             }
 
             override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                adShowing = false
                 loadRewarded()
                 onUnavailable()
             }
         }
+        adShowing = true
         ad.show(activity) { earned = true }
     }
 
@@ -180,15 +191,18 @@ class AdManager(private val activity: Activity) {
         interstitial = null
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
+                adShowing = false
                 loadInterstitial()
                 onDone()
             }
 
             override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                adShowing = false
                 loadInterstitial()
                 onDone()
             }
         }
+        adShowing = true
         ad.show(activity)
     }
 }

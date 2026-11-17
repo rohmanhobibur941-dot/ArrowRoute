@@ -8,6 +8,7 @@ import android.os.Vibrator
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
@@ -104,6 +105,9 @@ enum class Status { PLAYING, WON, LOST }
 
 class Ghost(val arrow: Arrow, val progress: Float)
 
+/** A blocked arrow that is rushing into the arrow in front of it (shift = how many cells it moved). */
+class Bump(val arrowId: Int, val shift: Float)
+
 class GameState(private val prefs: Prefs, private val aspect: Float) {
     var level by mutableIntStateOf(prefs.level)
     var hints by mutableIntStateOf(prefs.hints)
@@ -119,6 +123,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
     var totalArrows by mutableIntStateOf(1)
     val ghosts = mutableStateMapOf<Int, Ghost>()
     var blockedId by mutableIntStateOf(-1)
+    var bump by mutableStateOf<Bump?>(null)
     var hintId by mutableIntStateOf(-1)
     var status by mutableStateOf(Status.PLAYING)
     var gen by mutableIntStateOf(0)
@@ -184,6 +189,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         status = Status.PLAYING
         ghosts.clear()
         blockedId = -1
+        bump = null
         hintId = -1
         hintClaimed = false
         reviveUsed = false
@@ -260,8 +266,23 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
             if (penalized.add(a.id)) hearts -= 1
             fx.error()
             blockedId = a.id
+            if (bump == null) {
+                // the arrow dashes (fast) into the arrow in front of it, then goes back to its place
+                val k = LevelGen.blockerDistance(a, w, h, occ)
+                val travel = maxOf(0.15f, k - 0.7f)
+                val g = gen
+                scope.launch {
+                    animate(0f, travel, animationSpec = tween(110, easing = FastOutSlowInEasing)) { v, _ ->
+                        if (g == gen) bump = Bump(a.id, v)
+                    }
+                    animate(travel, 0f, animationSpec = tween(260, easing = FastOutSlowInEasing)) { v, _ ->
+                        if (g == gen) bump = Bump(a.id, v)
+                    }
+                    if (g == gen) bump = null
+                }
+            }
             scope.launch {
-                delay(600)
+                delay(750)
                 if (blockedId == a.id) blockedId = -1
             }
             if (hearts <= 0) status = Status.LOST
@@ -277,7 +298,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         prefs.hints = hints
         hintId = a.id
         scope.launch {
-            delay(1500)
+            delay(2600)
             if (hintId == a.id) hintId = -1
         }
     }

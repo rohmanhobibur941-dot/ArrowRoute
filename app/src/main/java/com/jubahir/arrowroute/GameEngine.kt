@@ -56,22 +56,52 @@ private const val MIN_LEN = 4
 
 object LevelGen {
 
+    // How many levels of each kind appear in every block of 10 levels: easy, medium, hard, extreme.
+    // Every block mixes the kinds (in a fixed random order); later blocks have more hard levels.
+    private val MIX = arrayOf(
+        intArrayOf(5, 3, 1, 1),   // levels 1-10
+        intArrayOf(3, 4, 2, 1),   // 11-20
+        intArrayOf(0, 3, 7, 0),   // 21-30: 7 hard, 3 medium
+        intArrayOf(0, 2, 5, 3),   // 31-40
+        intArrayOf(0, 1, 4, 5),   // 41-50
+        intArrayOf(0, 0, 4, 6)    // 51 and on
+    )
+
+    /** 0 = easy, 1 = medium, 2 = hard, 3 = extreme. Level 1 is always easy. */
+    fun difficultyOf(level: Int): Int {
+        val idx = (level - 1).coerceAtLeast(0)
+        val block = idx / 10
+        val pos = idx % 10
+        val mix = MIX[min(block, MIX.size - 1)]
+        val list = ArrayList<Int>()
+        for (d in 0..3) {
+            for (n in 0 until mix[d]) list.add(d)
+        }
+        val shuffled = list.shuffled(Random(block * 7919 + 17)).toMutableList()
+        if (block == 0) {
+            val e = shuffled.indexOf(0)
+            if (e > 0) {
+                shuffled[e] = shuffled[0]
+                shuffled[0] = 0
+            }
+        }
+        return shuffled[pos]
+    }
+
     /**
-     * Arrow count per level: level 1 = 60, level 2 = 72, level 3 = 84 ... (+12 per level).
-     * From level 4 a small deterministic +-8% wobble is added. Capped for very late levels.
+     * Arrow count per level: level 1 = 60, level 2 = 72 ... (+12 per level), a bit fewer arrows on
+     * easy levels and more on hard / extreme ones. From level 4 a small +-8% wobble is added.
      */
     fun arrowTarget(level: Int): Int {
         val base = 60 + 12 * (level - 1)
         val wobble = if (level <= 3) 0.0 else ((level * 7919) % 17 - 8) / 100.0
-        return (base * (1.0 + wobble)).toInt().coerceIn(60, 320)
-    }
-
-    /** 0 = easy (levels 1-10), 1 = medium (11-25), 2 = hard (26-50), 3 = extreme (51+). */
-    fun difficultyOf(level: Int): Int = when {
-        level <= 10 -> 0
-        level <= 25 -> 1
-        level <= 50 -> 2
-        else -> 3
+        val factor = when (difficultyOf(level)) {
+            0 -> 0.8
+            1 -> 1.0
+            2 -> 1.15
+            else -> 1.3
+        }
+        return (base * (1.0 + wobble) * factor).toInt().coerceIn(50, 360)
     }
 
     /** Easy -> Medium -> Hard -> Extreme: longer arrows and fewer free arrows at the start. */
@@ -231,6 +261,21 @@ object LevelGen {
         var y = a.head.y
         var n = 0
         while (x in 0 until w && y in 0 until h) {
+            x += d.dx
+            y += d.dy
+            n++
+        }
+        return n
+    }
+
+    /** Number of cells from the head to the first arrow in front of it (1 = right next to it). */
+    fun blockerDistance(a: Arrow, w: Int, h: Int, occ: Set<Int>): Int {
+        val d = a.dir
+        var x = a.head.x + d.dx
+        var y = a.head.y + d.dy
+        var n = 1
+        while (x in 0 until w && y in 0 until h) {
+            if (occ.contains(y * w + x)) return n
             x += d.dx
             y += d.dy
             n++

@@ -79,10 +79,20 @@ fun AppRoot(ads: AdManager) {
     }
     var screen by remember { mutableStateOf(Screen.SPLASH) }
 
-    when (screen) {
-        Screen.SPLASH -> SplashScreen { screen = Screen.HOME }
-        Screen.HOME -> HomeScreen(gs, prefs) { screen = Screen.GAME }
-        Screen.GAME -> GameScreen(gs, prefs, fx, ads) { screen = Screen.HOME }
+    Box(Modifier.fillMaxSize()) {
+        when (screen) {
+            Screen.SPLASH -> SplashScreen { screen = Screen.HOME }
+            Screen.HOME -> HomeScreen(gs, prefs) { screen = Screen.GAME }
+            Screen.GAME -> GameScreen(gs, prefs, fx, ads) { screen = Screen.HOME }
+        }
+        // while an ad is open: plain black behind it (the ad's status bar strip would show our header)
+        if (ads.adShowing) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        }
     }
 }
 
