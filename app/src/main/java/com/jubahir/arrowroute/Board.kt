@@ -44,8 +44,8 @@ object Themes {
     const val CANDY = 2
 
     private val NEON_COLORS = listOf(
-        0xFFFFE347, 0xFF3DDCFF, 0xFFD36BFF, 0xFFFF5FA8, 0xFF3DFFB0,
-        0xFFFF9A3D, 0xFF6C8CFF, 0xFFB6FF3D, 0xFFFF4D6D
+        0xFFFFD54F, 0xFF64B5F6, 0xFFBA68C8, 0xFFF06292, 0xFF4DD0E1,
+        0xFFAED581, 0xFFFF8A65, 0xFF7986CB, 0xFF81C784, 0xFFE57373
     ).map { Color(it) }
 
     private val CANDY_COLORS = listOf(
@@ -81,12 +81,14 @@ object Themes {
         else -> Color(0x1F8A5A2B)
     }
 
+    // Classic = black arrows, Neon = many colours, Candy = candy colours
     fun arrowColor(t: Int, id: Int): Color = when (t) {
+        CLASSIC -> Color(0xFF1B1B1B)
         NEON -> NEON_COLORS[id % NEON_COLORS.size]
         else -> CANDY_COLORS[id % CANDY_COLORS.size]
     }
 
-    // every theme uses the same bold, glossy arrows
+    // all three themes use the same thick arrows
     fun arrowWidth(t: Int, cell: Float): Float = max(3f, cell * 0.24f)
 }
 
@@ -135,27 +137,35 @@ private fun roundedPath(pts: List<Offset>, r: Float): Path {
     return path
 }
 
-/** Draws one snake-like arrow: glossy body with rounded corners and a big rounded arrow head. */
+/**
+ * Draws one snake-like arrow with rounded corners. Candy is glossy with an outline; Classic and Neon
+ * are flat (like before), but just as thick.
+ */
 internal fun DrawScope.drawArrow(pts: List<Offset>, color: Color, sw: Float, alpha: Float, theme: Int) {
     if (pts.size < 2) return
+    val candy = theme == Themes.CANDY
     val path = roundedPath(pts, sw * 1.5f)
     val outline = shade(color, 0.55f).copy(alpha = alpha)
-    drawPath(
-        path,
-        outline,
-        style = Stroke(width = sw * 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-    )
+    if (candy) {
+        drawPath(
+            path,
+            outline,
+            style = Stroke(width = sw * 1.3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
     drawPath(
         path,
         color.copy(alpha = alpha),
         style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
     )
-    translate(-sw * 0.18f, -sw * 0.18f) {
-        drawPath(
-            path,
-            Color.White.copy(alpha = 0.38f * alpha),
-            style = Stroke(width = sw * 0.26f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+    if (candy) {
+        translate(-sw * 0.18f, -sw * 0.18f) {
+            drawPath(
+                path,
+                Color.White.copy(alpha = 0.38f * alpha),
+                style = Stroke(width = sw * 0.26f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
     }
 
     val tip = pts[pts.size - 1]
@@ -168,14 +178,16 @@ internal fun DrawScope.drawArrow(pts: List<Offset>, color: Color, sw: Float, alp
     if (len < 0.001f) return
     dx /= len
     dy /= len
-    val hl = sw * 2.2f
-    val hw = sw * 1.65f
+    // arrow head: a little bigger than the old one (1.75 x 1.3), corners slightly rounded
+    val hl = sw * 1.9f
+    val hw = sw * 1.4f
     val tri = trianglePath(tip.x, tip.y, dx, dy, hl, hw)
-    // rounded corners: fill plus a thick round-join stroke of the same colour
-    drawPath(tri, outline, style = Stroke(width = sw * 0.8f, join = StrokeJoin.Round))
-    drawPath(tri, outline)
+    if (candy) {
+        drawPath(tri, outline, style = Stroke(width = sw * 0.45f, join = StrokeJoin.Round))
+        drawPath(tri, outline)
+    }
     drawPath(tri, color.copy(alpha = alpha))
-    drawPath(tri, color.copy(alpha = alpha), style = Stroke(width = sw * 0.45f, join = StrokeJoin.Round))
+    drawPath(tri, color.copy(alpha = alpha), style = Stroke(width = sw * 0.2f, join = StrokeJoin.Round))
 }
 
 // ------------------------------------------------------------------ layout + hit testing
