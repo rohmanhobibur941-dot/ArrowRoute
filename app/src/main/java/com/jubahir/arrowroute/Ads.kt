@@ -3,6 +3,7 @@ package com.jubahir.arrowroute
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import kotlin.math.min
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -39,6 +40,14 @@ class AdManager(private val activity: Activity) {
     var adShowing by mutableStateOf(false)
         private set
 
+    /** Last ad problem (e.g. "Rewarded: code 3 - No fill"). Tap the "Ad not ready" message in the game to see it. */
+    var lastError: String = ""
+        private set
+
+    private var rewardedFails = 0
+    private var interstitialFails = 0
+    private var lastInterstitialAt = 0L
+
     private var initStarted = false
     private var ready = false
     private var rewarded: RewardedAd? = null
@@ -57,6 +66,8 @@ class AdManager(private val activity: Activity) {
     /** Initialises AdMob (once) and then preloads the rewarded and interstitial ads. */
     fun loadAll() {
         if (ready) {
+            if (rewardedFails >= 6) rewardedFails = 0
+            if (interstitialFails >= 6) interstitialFails = 0
             loadRewarded()
             loadInterstitial()
             return
@@ -77,6 +88,9 @@ class AdManager(private val activity: Activity) {
         }
     }
 
+    /** Wait before the next automatic retry: 8s, 16s, 32s, then 60s. Gives up after 6 failed tries. */
+    private fun retryDelay(fails: Int): Long = min(60_000L, 8_000L shl min(fails - 1, 3))
+
     fun loadRewarded() {
         if (!ready || rewarded != null || rewardedLoading) return
         rewardedLoading = true
@@ -85,6 +99,7 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     rewarded = ad
                     rewardedLoading = false
+                    rewardedFails = 0
                     val r = pendingReward
                     val u = pendingUnavailable
                     val w = pendingWait
@@ -100,7 +115,11 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     rewarded = null
                     rewardedLoading = false
+                    rewardedFails++
+                    lastError = "Rewarded: code ${error.code} - ${error.message}"
                     finishPending(false)
+                    // try again by itself (no fill / bad network are often temporary)
+                    if (rewardedFails < 6) handler.postDelayed({ loadRewarded() }, retryDelay(rewardedFails))
                 }
             }
         })
@@ -114,6 +133,7 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     interstitial = ad
                     interstitialLoading = false
+                    interstitialFails = 0
                 }
             }
 
@@ -121,6 +141,9 @@ class AdManager(private val activity: Activity) {
                 activity.runOnUiThread {
                     interstitial = null
                     interstitialLoading = false
+                    interstitialFails++
+                    lastError = "Interstitial: code ${error.code} - ${error.message}"
+                    if (interstitialFails < 6) handler.postDelayed({ loadInterstitial() }, retryDelay(interstitialFails))
                 }
             }
         })
@@ -183,11 +206,13 @@ class AdManager(private val activity: Activity) {
     /** Shows an interstitial if one is ready, then always calls onDone. */
     fun showInterstitial(onDone: () -> Unit) {
         val ad = interstitial
-        if (!ready || ad == null) {
+        val now = System.currentTimeMillis()
+        if (!ready || ad == null || now - lastInterstitialAt < 60_000L) {
             loadAll()
             onDone()
             return
         }
+        lastInterstitialAt = now
         interstitial = null
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {

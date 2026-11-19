@@ -1,6 +1,7 @@
 package com.jubahir.arrowroute
 
 import android.app.Activity
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -320,6 +321,7 @@ private fun difficultyLabel(d: Int): Int = when (d) {
 @Composable
 fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var zoom by remember { mutableFloatStateOf(1f) }
     var showSettings by remember { mutableStateOf(false) }
     var showTheme by remember { mutableStateOf(false) }
@@ -334,7 +336,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     LaunchedEffect(gs.gen) { zoom = 1f }
     LaunchedEffect(adMsg) {
         if (adMsg == 2) {
-            delay(1800)
+            delay(3200)
             adMsg = 0
         }
     }
@@ -492,6 +494,11 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
                     .padding(bottom = 90.dp)
                     .clip(RoundedCornerShape(50))
                     .background(Color(0xCC1E1004))
+                    .clickable {
+                        // tap = show why the ad is not available (helps to find the problem)
+                        val why = ads.lastError.ifEmpty { "No ad error yet" }
+                        Toast.makeText(ctx, why, Toast.LENGTH_LONG).show()
+                    }
                     .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
                 LabelImage(if (adMsg == 1) R.drawable.lbl_loading_ad else R.drawable.lbl_ad_not_ready, 18.dp)

@@ -13,6 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity() {
+    private var adManager: AdManager? = null
+
+    override fun onResume() {
+        super.onResume()
+        adManager?.loadAll()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -32,6 +39,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val ads = AdManager(this)
+        adManager = ads
         ads.loadAll()
         setContent {
             var crash by remember { mutableStateOf(crashPrefs.lastCrash) }
