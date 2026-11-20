@@ -131,6 +131,9 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
     var hintClaimed by mutableStateOf(false)
     var reviveUsed by mutableStateOf(false)
     var stars by mutableIntStateOf(0)
+    // arrows that were already shown by a hint in this level (showing one again costs nothing)
+    private val hintedIds = HashSet<Int>()
+
     // arrows that already cost a heart in this level: tapping the same blocked arrow again is free
     private val penalized = HashSet<Int>()
 
@@ -195,6 +198,7 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         reviveUsed = false
         stars = 0
         penalized.clear()
+        hintedIds.clear()
         gen++
     }
 
@@ -289,13 +293,36 @@ class GameState(private val prefs: Prefs, private val aspect: Float) {
         }
     }
 
-    /** Uses one hint (if any is left) and highlights an arrow that can leave right now. */
-    fun hint(scope: CoroutineScope) {
-        if (status != Status.PLAYING || hints <= 0) return
+/** True if pressing hint would cost nothing now: every arrow that can leave was already hinted. */
+    fun hintIsFree(): Boolean {
+        if (status != Status.PLAYING) return false
         val occ = LevelGen.occupancy(arrows, w)
-        val a = arrows.firstOrNull { LevelGen.canExit(it, w, h, occ) } ?: return
-        hints -= 1
-        prefs.hints = hints
+        val free = arrows.filter { LevelGen.canExit(it, w, h, occ) }
+        return free.isNotEmpty() && free.all { it.id in hintedIds }
+    }
+
+    /**
+     * Shows an arrow that can leave right now. An arrow that was not hinted before costs 1 hint and is
+     * remembered; if you press hint again (without taking that arrow) another arrow is shown. When
+     * every free arrow was already hinted, they are shown again for free.
+     */
+    fun hint(scope: CoroutineScope) {
+        if (status != Status.PLAYING) return
+        val occ = LevelGen.occupancy(arrows, w)
+        val free = arrows.filter { LevelGen.canExit(it, w, h, occ) }
+        if (free.isEmpty()) return
+        val fresh = free.filter { it.id !in hintedIds }
+        val a: Arrow
+        if (fresh.isNotEmpty()) {
+            if (hints <= 0) return
+            a = fresh.first()
+            hints -= 1
+            prefs.hints = hints
+            hintedIds.add(a.id)
+        } else {
+            val others = free.filter { it.id != hintId }
+            a = if (others.isNotEmpty()) others.first() else free.first()
+        }
         hintId = a.id
         scope.launch {
             delay(2600)

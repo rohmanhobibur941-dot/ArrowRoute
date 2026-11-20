@@ -349,7 +349,7 @@ fun GameScreen(gs: GameState, prefs: Prefs, fx: Fx, ads: AdManager, onHome: () -
     }
 
     fun onHintClick() {
-        if (gs.hints > 0) gs.hint(scope) else watchAd { gs.addHint() }
+        if (gs.hints > 0 || gs.hintIsFree()) gs.hint(scope) else watchAd { gs.addHint() }
     }
 
     val cleared = gs.totalArrows - gs.arrows.size
