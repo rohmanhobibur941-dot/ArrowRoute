@@ -43,7 +43,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
-        // Unity Ads 4.19+ is built with Kotlin 2.1; let this Kotlin 1.9 project read its metadata
+        // AdMob 24.1+ and Unity Ads 4.19+ are built with Kotlin 2.1; let this Kotlin 1.9 project read their metadata
         freeCompilerArgs += listOf("-Xskip-metadata-version-check")
     }
     buildFeatures { compose = true }
@@ -60,6 +60,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
     // Google AdMob
-    // Unity Ads
+    // Ad mediation inside the app: AdMob first, Unity Ads when AdMob has no ad
+    implementation("com.google.android.gms:play-services-ads:25.5.0")
     implementation("com.unity3d.ads:unity-ads:4.21.0")
 }
